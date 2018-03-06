@@ -1,0 +1,7 @@
+catpy
+numpy
+scipy
+networkx
+json
+pandas
+gzip
