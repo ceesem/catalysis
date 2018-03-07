@@ -8,7 +8,7 @@ from functools import partial
 
 def nblast_neuron_pair( nrn_q, nrn_t, smat, resample_distance = 1000, num_nn = 5 ):
     """
-        Find the NBLAST score for two neurons, given a score matrix.
+        Find the NBLAST score for two neurons, given a score matrix object
     """
     d_and_udotv = neuron_comparison_nblast_components( nrn_q, nrn_t, resample_distance=resample_distance, num_nn = num_nn )
     S = nblast_dist_fun( d_and_udotv, smat )
@@ -93,16 +93,16 @@ def neuron_comparison_nblast_components( source_nrn, target_nrn, resample_distan
     else:
         source_dp = neuron_to_dotprop( source_nrn, resample_distance=resample_distance, num_nn=num_nn)
         target_dp = neuron_to_dotprop( target_nrn, resample_distance=resample_distance, num_nn=num_nn)
-    d = []
     udotv = []
-    dist_tree = sp.spatial.KDTree( target_dp[:,0:2] )
-    for node in source_dp:
-        targ_node_info = dist_tree.query( node[0:2], 1 )
-        d.append( targ_node_info[0] )
-        udotv.append( np.abs( np.dot(node[3:6], target_dp[targ_node_info[1]][3:6]) ) )
-    d_and_udotv = np.zeros( (len(d),2) )
-    d_and_udotv[:,0] = d
-    d_and_udotv[:,1] = udotv
+    dist_tree = sp.spatial.KDTree( target_dp[:,0:3] )
+    ds = dist_tree.query( source_dp[:,0:3], 1 )
+    # for node in source_dp:
+    #     targ_node_info = dist_tree.query( node[0:2], 1 )
+    #     d.append( targ_node_info[0] )
+    #     udotv.append( np.abs( np.dot(node[3:6], target_dp[targ_node_info[1]][3:6]) ) )
+    d_and_udotv = np.zeros( (len(ds[0]),2) )
+    d_and_udotv[:,0] = ds[0]
+    d_and_udotv[:,1] = np.einsum('ij,ij->i', source_dp[:,3:], target_dp[ds[1],3:])
     return d_and_udotv
 
 def nblast_dist_fun( d_and_udotv, score_lookup ):

@@ -815,6 +815,14 @@ class NeuronObj:
         cmps, cmp_label = self.split_into_components( nids )
         return cmps, cmp_label
 
+    def slabs( self ):
+        """
+            Returns slabs, the points between branch points, sorted by length.
+        """
+        nids = self.find_branch_points()
+        cmps, cmp_label_dict = self.split_into_components( nids, from_parent=False )
+        return sorted( cmps, key = len, reverse=True)
+
 def synaptic_partner_tables( neurons,
                        include_presynaptic=True,
                        include_postsynaptic=True,
