@@ -107,6 +107,8 @@ def neuron_comparison_nblast_components( source_nrn, target_nrn, resample_distan
 
 def nblast_dist_fun( d_and_udotv, score_lookup ):
     S = 0
+    if np.shape(d_and_udotv)[1] != 2:
+        raise ValueError( "Scores must only have two components")
     for row in d_and_udotv:
         S += score_lookup.score( d=row[0], udotv=row[1] )
     return S

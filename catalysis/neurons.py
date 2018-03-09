@@ -108,12 +108,10 @@ class NeuronList:
                 New neuron list with only those neurons with the specified annotations.
         """
 
-        if type(annos) is str:
-            annos = [annos]
-
+        anno_ids = self.CatmaidInterface.parse_annotation_list( annos )
         neurons_sliced = {}
         for neuron in self:
-            for anno in annos:
+            for anno in anno_ids:
                 if anno in neuron.annotations:
                     neurons_sliced[ neuron.id ] = neuron
                     continue
@@ -626,10 +624,12 @@ class NeuronObj:
 
         pre_conn_ids = [dat[1] for dat in skdata[1] if dat[2] == 0]
         post_conn_ids = [dat[1] for dat in skdata[1] if dat[2] == 1]
-        conn_locs = {conn_row[1]: conn_row[3:6] for conn_row in skdata[1]}
 
-        neuron_info_dict['inputs'] = InputSynapseListObj( CatmaidInterface.get_connector_data( post_conn_ids ), conn_locs , skid )
-        neuron_info_dict['outputs'] = OutputSynapseListObj( CatmaidInterface.get_connector_data( pre_conn_ids ), conn_locs, skid)
+        pre_conn_locs = {conn_row[1]: conn_row[3:6] for conn_row in skdata[1] if conn_row[1] in pre_conn_ids}
+        post_conn_locs = {conn_row[1]: conn_row[3:6] for conn_row in skdata[1] if conn_row[1] in post_conn_ids}
+
+        neuron_info_dict['inputs'] = InputSynapseListObj( CatmaidInterface.get_connector_data( post_conn_ids ), post_conn_locs , skid )
+        neuron_info_dict['outputs'] = OutputSynapseListObj( CatmaidInterface.get_connector_data( pre_conn_ids ), pre_conn_locs, skid )
 
         neuron_info_dict['annotations'] = CatmaidInterface.get_annotations_for_objects([skid])
 
@@ -653,10 +653,12 @@ class NeuronObj:
 
         pre_conn_ids = [dat[1] for dat in skdata[1] if dat[2] == 0]
         post_conn_ids = [dat[1] for dat in skdata[1] if dat[2] == 1]
-        conn_locs = {conn_row[1]: conn_row[3:6] for conn_row in skdata[1]}
 
-        neuron_info_dict['inputs'] = InputSynapseListObj( CatmaidInterface.get_connector_data( post_conn_ids ), conn_locs , skid )
-        neuron_info_dict['outputs'] = OutputSynapseListObj( CatmaidInterface.get_connector_data( pre_conn_ids ), conn_locs, skid)
+        pre_conn_locs = {conn_row[1]: conn_row[3:6] for conn_row in skdata[1] if conn_row[1] in pre_conn_ids}
+        post_conn_locs = {conn_row[1]: conn_row[3:6] for conn_row in skdata[1] if conn_row[1] in post_conn_ids}
+
+        neuron_info_dict['inputs'] = InputSynapseListObj( CatmaidInterface.get_connector_data( post_conn_ids ), post_conn_locs , skid )
+        neuron_info_dict['outputs'] = OutputSynapseListObj( CatmaidInterface.get_connector_data( pre_conn_ids ), pre_conn_locs, skid )
         neuron_info_dict['annotations'] = CatmaidInterface.get_annotations_for_objects([skid])
         return cls( neuron_info_dict )
 
