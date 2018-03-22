@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 
 from catpy import *
-from collections import defaultdict
 from itertools import chain
-from numpy import ceil, floor
 import networkx as nx
+import numpy as np
 
 class CatmaidDataInterface():
     """
         Python object using cat.CatmaidClient to aid interaction with neuronal circuit data.
     """
+
     def __init__(self, CatmaidClient):
         """
             Instantiate a data interface with a CatmaidClient object.
@@ -28,9 +28,9 @@ class CatmaidDataInterface():
     def from_json( cls, filename ):
         return cls( client.CatmaidClient.from_json( filename ) )
 
-    def get_catmaid_url_to_point( self, xyz, node_skeleton_ids = None, tool='tracingtool',zoomlevel=0):
+    def get_catmaid_url_to_point( self, xyz, node_skeleton_ids = None, tool = 'tracingtool', zoomlevel=0):
         """
-            Generate a URL that goes to a specified location (and, optinoally, a selected node) in a CATMAID instance.
+            Generate a URL that goes to a specified location (and, optionally, a selected node) in a CATMAID instance.
 
             Parameters
             ----------
@@ -173,50 +173,75 @@ class CatmaidDataInterface():
                            with_merge_history=False,
                            with_reviews=False,
                            with_annotations=False,
-                           with_user_info=False ):
+                           with_user_info=False,
+                           max_neurons_per_post=50):
         """
         """
-        postdata = {}
-        for ind, id in enumerate(skeleton_id_list):
-            postdata[ 'skeleton_ids[{}]'.format(ind) ] = id
+        
+        id_iter = iter(skeleton_id_list)
+        skeleton_lists = []
+        
+        ind = 0
+        finished = False
+        while not finished:
+            skeleton_lists.append([])
+            for ii in np.arange(0,max_neurons_per_post):
+                try:
+                    skeleton_lists[ind].append( next(id_iter) )
+                except:
+                    finished=True
+                    break
+            ind+=1
+        
+        returned_data = []
+        for id_list in skeleton_lists:
+            postdata = {}
 
-        if with_tags:
-            postdata['with_tags'] = 'true'
-        else:
-            postdata['with_tags'] = 'false'
+            for ind, id in enumerate(id_list):
+                postdata[ 'skeleton_ids[{}]'.format(ind) ] = id
 
-        if with_connectors:
-            postdata['with_connectors'] = 'true'
-        else:
-            postdata['with_connectors'] = 'false'
+            if with_tags:
+                postdata['with_tags'] = 'true'
+            else:
+                postdata['with_tags'] = 'false'
 
-        if with_history:
-            postdata['with_history'] = 'true'
-        else:
-            postdata['with_history'] = 'false'
+            if with_connectors:
+                postdata['with_connectors'] = 'true'
+            else:
+                postdata['with_connectors'] = 'false'
 
-        if with_merge_history:
-            postdata['with_merge_history'] = 'true'
-        else:
-            postdata['with_merge_history'] = 'false'
+            if with_history:
+                postdata['with_history'] = 'true'
+            else:
+                postdata['with_history'] = 'false'
 
-        if with_reviews:
-            postdata['with_reviews'] = 'true'
-        else:
-            postdata['with_reviews'] = 'false'
+            if with_merge_history:
+                postdata['with_merge_history'] = 'true'
+            else:
+                postdata['with_merge_history'] = 'false'
 
-        if with_annotations:
-            postdata['with_annotations'] = 'true'
-        else:
-            postdata['with_annotations'] = 'false'
+            if with_reviews:
+                postdata['with_reviews'] = 'true'
+            else:
+                postdata['with_reviews'] = 'false'
 
-        if with_user_info:
-            postdata['with_user_info'] = 'true'
-        else:
-            postdata['with_user_info'] = 'false'
+            if with_annotations:
+                postdata['with_annotations'] = 'true'
+            else:
+                postdata['with_annotations'] = 'false'
 
-        url = '/{}/skeletons/compact-detail'.format( self.CatmaidClient.project_id)
-        return self.CatmaidClient.post( url, data = postdata )
+            if with_user_info:
+                postdata['with_user_info'] = 'true'
+            else:
+                postdata['with_user_info'] = 'false'
+
+            url = '/{}/skeletons/compact-detail'.format( self.CatmaidClient.project_id )
+            returned_data.append( self.CatmaidClient.post( url, data = postdata ) )
+
+        out = returned_data[0]
+        for d in returned_data[1:]:
+            out['skeletons'].update(d['skeletons'])
+        return out
 
     def postsynaptic_count( self, connector_list ):
         """
@@ -325,7 +350,7 @@ class CatmaidDataInterface():
 
         anno_dict_names = self.get_annotations()
         if output is 'names':
-            anno_dict_ids = { anno_dict_all[name]:name for name in anno_dict_all }
+            anno_dict_ids = { anno_dict_names[name]:name for name in anno_dict_names }
 
         annotation_output = []
         if output is 'ids':
@@ -348,8 +373,8 @@ class CatmaidDataInterface():
 
                 elif type(anno) is str:
                     annotation_output.append(anno)
-        else:
-            raise(ValueError,'Output must be either \'ids\' or \'names\'')
+        # else:
+        #     raise(ValueError,'Output must be either \'ids\' or \'names\'')
         return annotation_output
 
 
@@ -544,7 +569,7 @@ class CatmaidDataInterface():
         postdata = {'boolean_op' : 'OR'}
         for i, id in enumerate( id_list ):
             postdata['source_skeleton_ids[{}]'.format(i)] = id
-        d = self.CatmaidClient.post( url, data = postdata )
+        d = self.CatmaidClient.post( url, data=postdata )
 
         connected_info = dict()
         connected_info['incoming'] = {}
@@ -776,3 +801,25 @@ class CatmaidDataInterface():
             g.add_edge( e[0], e[1], weight = e[2] )
 
         return g
+
+    def get_landmarks( self, with_locations=True ):
+        """
+            Get the landmarks from the 
+        """
+        url = '/{}/landmarks/?with_locations={}'.format(
+                    self.CatmaidClient.project_id,
+                    str(with_locations).lower() )
+        return self.CatmaidClient.fetch( url )
+
+    def get_landmark_groups( self, with_locations=True, with_members=True ):
+        """
+        """
+        url = '/{}/landmarks/groups/?with_locations={}&with_members={}'.format(
+                    self.CatmaidClient.project_id,
+                    str(with_locations).lower(),
+                    str(with_members).lower() )
+        return self.CatmaidClient.fetch( url )
+
+
+
+

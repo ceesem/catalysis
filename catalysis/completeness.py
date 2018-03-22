@@ -1,4 +1,4 @@
-import catalysis.CatmaidInterface as ci
+import catalysis.catmaid_interface as ci
 import catalysis.neurons as na
 
 from collections import defaultdict
@@ -7,7 +7,8 @@ from numpy import NaN
 
 def root_is_soma( nrn ):
     """
-    Check that a neuron's root is tagged 'soma' and no other node is tagged similarly.
+    Check that a neuron's root is tagged 'soma' and no other node is tagged
+    similarly.
 
     Parameters
     ----------
@@ -41,7 +42,8 @@ def open_ends( nrn, include_uncertain = True ):
             Neuron to test
 
         include_uncertain : Boolean (Default : True)
-            Boolean variable associated with whether to include "uncertain ends" and "uncertain continuation" in the statistics.
+            Boolean variable associated with whether to include "uncertain ends"
+            and "uncertain continuation" in the statistics.
 
         Returns
         ----------
@@ -88,7 +90,8 @@ def fragment_test( nrn ):
 
 def property_summary_exact( nrns ):
     """
-    Generate a readable table summarizing the completeness of reconstruction for a group of neurons.
+    Generate a readable table summarizing the completeness of reconstruction for
+    a group of neurons.
         Parameters
         ----------
         nrns : NeuronDictObject
@@ -118,13 +121,16 @@ def property_summary_exact( nrns ):
 
     if nrns.CatmaidInterface is not None:
         review_status = nrns.CatmaidInterface.get_review_status(ids)
-        rev_frac = [ (review_status[str(id)][1]+0.0) / (review_status[str(id)][0]+0.0) for id in ids ]
+        rev_frac = [ (review_status[str(id)][1]+0.0)
+                     / (review_status[str(id)][0]+0.0) for id in ids ]
         dat['review_fraction'] = rev_frac
     return pd.DataFrame(dat, index=ids)
 
 def property_summary_estimated( ids, CatmaidInterface ):
     """
-        A thinner version of property_summary_exact that only retrieves specific relevent info, but only approximates total number of end nodes and is thus faster than completeness_summary_exact.
+        A thinner version of property_summary_exact that only retrieves specific
+        relevent info, but only approximates total number of end nodes and is
+        thus faster than completeness_summary_exact.
 
         Parameters
         ----------
@@ -176,25 +182,32 @@ def property_summary_estimated( ids, CatmaidInterface ):
             'is_fragment':is_fragment}
 
     review_status = CatmaidInterface.get_review_status(ids)
-    rev_frac = [ (review_status[str(id)][1]+0.0) / (review_status[str(id)][0]+0.0) for id in ids ]
+    rev_frac = [ (review_status[str(id)][1]+0.0)
+                  / (review_status[str(id)][0]+0.0) for id in ids ]
     dat['review_fraction'] = rev_frac
 
     return pd.DataFrame(dat, index=ids)
 
-def completion_categories( property_summary = None, completeness_threshold = 0.97, review_threshold = 0.97 ):
+def completion_categories( property_summary = None,
+                           completeness_threshold = 0.97,
+                           review_threshold = 0.97 ):
     """
-        Returns a dict describing which neurons belong to which completeness categories. This takes a property summary as its input.
+        Returns a dict describing which neurons belong to which completeness
+        categories. This takes a property summary as its input.
 
         Parameters
         ----------
         property_summary : DataFrame
-            A property summary from either property_summary_exact or property_summary_estimated.
+            A property summary from either property_summary_exact or
+            property_summary_estimated.
 
         completeness_threshold : float (optional, default = 0.97)
-            The mininum fraction of complete end nodes a neuron must have to be considered complete.
+            The mininum fraction of complete end nodes a neuron must have to be
+            considered complete.
 
         review_threshold : float (optional, default = 0.97)
-            The minimum fraction of reviewed nodes a neuron must have to be considered reviewed.
+            The minimum fraction of reviewed nodes a neuron must have to be
+            considered reviewed.
 
         Returns
         -------
@@ -237,7 +250,8 @@ def completion_categories( property_summary = None, completeness_threshold = 0.9
 
 def category_summary( categories, syn_df=None, as_df = True, nans=False ):
     """
-    For a given categorization and synaptic connectivity table, summarize cateogries by number and synaptic count.
+    For a given categorization and synaptic connectivity table, summarize
+    cateogries by number and synaptic count.
 
     Parameters
     ----------
@@ -245,24 +259,30 @@ def category_summary( categories, syn_df=None, as_df = True, nans=False ):
         Dict keyed by category name with values being lists of neuron ids.
 
     syn_df : dataframe (optional, default is None)
-        DataFrame representing a table of synaptic connectivity formated like in synaptic_partner_tables.
+        DataFrame representing a table of synaptic connectivity formated like in
+        synaptic_partner_tables.
 
     as_df : Boolean (optional, default is True)
         Determines if the response is a dataframe or remains a dict.
 
     nans : Boolean (optional, default is False)
-        Returns only nans. Useful to generate reports that have the right shape, but no data.
+        Returns only nans. Useful to generate reports that have the right shape,
+        but no data.
 
     Returns
     ----------
     DataFrame (or dict, if as_df=False)
-        DataFrame indexed by categories, with columns being number of neurons and synapses.
+        DataFrame indexed by categories, with columns being number of neurons
+        and synapses.
 
     """
 
-    ids_cat = set( [item for sublist in [categories[cat] for cat in categories] for item in sublist if item is not None] )
+    ids_cat = set( [item for sublist in [categories[cat] for cat in categories]
+                    for item in sublist if item is not None] )
     if syn_df is not None:
-        ids_syn = set( filter( None.__ne__, syn_df.index.values ) ) # Remove any None objects that could happen with connector with no other annotation
+        # Remove any None objects that could happen in case of
+        # connector with no other annotation
+        ids_syn = set( filter( None.__ne__, syn_df.index.values ) ) 
         if ids_cat != ids_syn:
             print(ids_cat)
             print(ids_syn)
@@ -288,11 +308,18 @@ def category_summary( categories, syn_df=None, as_df = True, nans=False ):
             cat_by_num[cat] = 0
 
     if as_df:
-        return pd.DataFrame( {'Synapses': cat_by_syn, 'Number':cat_by_num} ).reindex(['Untraced', 'Incomplete fragment', 'Incomplete neuron', 'Complete fragment', 'Complete neuron', 'Reviewed complete neuron'])
+        return pd.DataFrame(
+                    {'Synapses': cat_by_syn,'Number':cat_by_num} ).reindex(
+                        ['Untraced',
+                         'Incomplete fragment',
+                         'Incomplete neuron',
+                         'Complete fragment',
+                         'Complete neuron',
+                         'Reviewed complete neuron'] )
     else:
         return cat_by_syn, cat_by_num
 
-def category_summary_from_neurons( nrns, estimate_partner_completion = True, include_presynaptic = False, include_postsynaptic = False, as_df = True ):
+def category_summary_from_neurons( nrns, estimate_partner_completion = True, include_presynaptic = False, include_postsynaptic = False, max_neurons_per_post = 50 ):
     """
         Generate category reports about neurons and their partners from a list of neurons.
 
@@ -328,7 +355,7 @@ def category_summary_from_neurons( nrns, estimate_partner_completion = True, inc
         print( '     Computing presynaptic categories...')
         pre_ids = [id for id in input_df.index.values if id is not None]
         if estimate_partner_completion:
-            input_neurons = na.NeuronList.from_id_list( pre_ids, nrns.CatmaidInterface )
+            input_neurons = na.NeuronList.from_id_list( pre_ids, nrns.CatmaidInterface, max_neurons_per_post=max_neurons_per_post )
             input_cats = completion_categories( property_summary_exact( input_neurons ) )
         else:
             input_cats = completion_categories( property_summary_estimated( pre_ids, nrns.CatmaidInterface ) )
@@ -341,7 +368,7 @@ def category_summary_from_neurons( nrns, estimate_partner_completion = True, inc
         print( '     Computing postsynaptic categories...')
         post_ids = [id for id in output_df.index.values if id is not None]
         if estimate_partner_completion:
-            output_neurons = na.NeuronList.from_id_list( post_ids, nrns.CatmaidInterface )
+            output_neurons = na.NeuronList.from_id_list( post_ids, nrns.CatmaidInterface, max_neurons_per_post=max_neurons_per_post )
             output_cats = completion_categories( property_summary_exact( output_neurons ) )
         else:
             output_cats = completion_categories( property_summary_estimated( post_ids, nrns.CatmaidInterface ) )
@@ -350,7 +377,6 @@ def category_summary_from_neurons( nrns, estimate_partner_completion = True, inc
         output_report = category_summary( main_cats, nans = True )
 
     report = {'Base': main_report, 'Inputs': input_report, 'Outputs': output_report }
-
     return report
 
 def completeness_report( CatmaidInterface,
@@ -359,7 +385,8 @@ def completeness_report( CatmaidInterface,
                    estimate_partner_completion = True,
                    include_presynaptic = False,
                    include_postsynaptic = False,
-                   complete_categories = None):
+                   complete_categories = None,
+                   max_neurons_per_post = 50):
     """
         Build a report on a set of neurons from annotations or ids, pulling them from a Catmaid instance.
 
@@ -391,6 +418,9 @@ def completeness_report( CatmaidInterface,
             DataFrame
                 DataFrame summarizing the completion status of neurons and, if desired, the set of partners.
     """
+    if type(annos) is str:
+        annos = [annos]
+
     if len(id_list) > 0 and len(annos) > 0:
         id_tag = ' and Specified Ids'
     elif len(id_list) > 0 and len(annos)==0:
@@ -406,7 +436,7 @@ def completeness_report( CatmaidInterface,
     anno_name = anno_tag + id_tag
 
     id_list = list( set( id_list + CatmaidInterface.get_ids_from_annotations(annos, flatten=True) ) )
-    nrns = na.NeuronList.from_id_list( id_list, CatmaidInterface )
+    nrns = na.NeuronList.from_id_list( id_list, CatmaidInterface, max_neurons_per_post=max_neurons_per_post )
     cats = category_summary_from_neurons( nrns, include_presynaptic = include_presynaptic, include_postsynaptic = include_postsynaptic )
 
     return report_from_summary( cats, anno_name=anno_name )
@@ -622,10 +652,9 @@ def report_from_annotation_list( anno_list, CatmaidInterface ):
     meta_rep = pd.DataFrame(columns = ['Number Complete','Number Incomplete','Fraction Complete','Synapses Complete','Fraction Synapses Complete'])
 
     for anno in anno_list:
-        rep = completeness_report( CatmaidInterface=CatmaidInterface, annos=anno )
-        meta_rep = meta_rep.append( rep.loc[anno] )
-
-    return meta_rep
+        rep = completeness_report( CatmaidInterface=CatmaidInterface, annos=[anno] )
+        meta_rep = meta_rep.append( rep.iloc[0] )
+    return meta_rep[['Fraction Complete','Number Complete','Number Incomplete']]
 
 def report_from_meta( meta, CatmaidInterface):
     """
@@ -645,5 +674,5 @@ def report_from_meta( meta, CatmaidInterface):
                 Report for the annotations within the meta-annotation.
     """
     anno_list = CatmaidInterface.get_annotations_from_meta_annotations( meta, flatten=True )
-    anno_names = CatmaidInterface.get_annotation_names( anno_list, flatten=True )
+    anno_names = CatmaidInterface.parse_annotation_list(anno_list, output='names')
     return report_from_annotation_list( anno_names, CatmaidInterface )

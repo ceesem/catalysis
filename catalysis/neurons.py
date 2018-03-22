@@ -55,6 +55,19 @@ class NeuronList:
         for neuron in self.neurons.values():
             yield neuron
 
+    def append( self, nrn ):
+        """
+            Add a new neuron to the NeuronList.
+        """
+        if type( nrn ) is NeuronObj:
+            if nrn.id not in self.ids():
+                self.neurons[nrn.id] = nrn
+            else:
+                print( 'Skipping {} ({}), already in list'.format(nrn.name, nrn.id) )
+        else:
+            raise TypeError('Only NeuronObjs can be added!')
+        return self
+
     def loc( self, ind ):
         """
             Select only those neurons
@@ -122,7 +135,7 @@ class NeuronList:
                     )    #
 
     @classmethod
-    def from_id_list( cls, id_list, CatmaidInterface, with_tags = True, with_annotations = True, project_name = None ):
+    def from_id_list( cls, id_list, CatmaidInterface, with_tags = True, with_annotations = True, project_name = None, max_neurons_per_post=100):
         """
             Initialize a NeuronList object from a list of skeleton ids.
 
@@ -140,17 +153,19 @@ class NeuronList:
                 List of NeuronObj for the specified ids, pulled from a catmaid server.
 
         """
-        d = CatmaidInterface.get_skeleton_data( id_list,
-                                      with_tags = with_tags,
-                                      with_annotations = with_annotations,
-                                      with_connectors = True
-                                      )
+        d = CatmaidInterface.get_skeleton_data(
+                                    id_list,
+                                    with_tags = with_tags,
+                                    with_annotations = with_annotations,
+                                    with_connectors = True,
+                                    max_neurons_per_post = max_neurons_per_post
+                                    )
         neurons = { id : NeuronObj.from_catmaid_data(id, d['skeletons'][str(id)], CatmaidInterface=CatmaidInterface) for id in id_list if id is not None}
         return cls( neurons, CatmaidInterface = CatmaidInterface, project_name = project_name, export_date = datetime.datetime.now().strftime('%c' ) )
 
 
     @classmethod
-    def from_annotations( cls, annotation_list, CatmaidInterface, with_tags = True, with_annotations = True, project_name = None ):
+    def from_annotations( cls, annotation_list, CatmaidInterface, with_tags = True, with_annotations = True, project_name = None, max_neurons_per_post=100):
         """
             Initialize a NeuronList object from a list of annotations.
 
@@ -168,8 +183,14 @@ class NeuronList:
                 Fancy list of NeuronObjs
 
         """
-        id_list = CatmaidInterface.get_ids_from_annotations( annotation_list, flatten=True )
-        return cls.from_id_list( id_list, CatmaidInterface, with_tags=with_tags, with_annotations=with_annotations, project_name=project_name )
+        id_list = CatmaidInterface.get_ids_from_annotations( annotation_list,
+                                                             flatten=True )
+        return cls.from_id_list(id_list,
+                                CatmaidInterface,
+                                with_tags=with_tags,
+                                with_annotations=with_annotations,
+                                project_name=project_name,
+                                max_neurons_per_post=max_neurons_per_post )
 
     @classmethod
     def from_msc_json_import( cls, filename ):
@@ -636,11 +657,11 @@ class NeuronObj:
         return cls( neuron_info_dict )
 
     @classmethod
-    def from_catmaid(cls, skid, CatmaidInterface, with_tags = True):
+    def from_catmaid(cls, skid, CatmaidInterface, with_tags = True, max_neurons_per_post=100):
         neuron_info_dict = {}
         neuron_info_dict['id'] = skid
 
-        skdata = CatmaidInterface.get_skeleton_data( skid, with_tags=with_tags )
+        skdata = CatmaidInterface.get_skeleton_data( skid, with_tags=with_tags, max_neurons_per_post=max_neurons_per_post )
         neuron_info_dict['reviews'] = skdata[4]
         neuron_info_dict['annotations'] = skdata[5]
         neuron_info_dict['name'] = skdata[6]
@@ -670,6 +691,10 @@ class NeuronObj:
             Create a new neuron where branches below a certain point are filtered out. Currently this removes synapse info.
         """
         sn = self.strahler_number()
+
+        if min_sn < 0:
+            min_sn = np.max( list(sn.values()) ) + min_sn
+
         inds_to_remove = [nid for nid in sn if sn[nid] < min_sn]
         nni = {}
         nni['id'] = self.id
@@ -822,8 +847,12 @@ class NeuronObj:
             Returns slabs, the points between branch points, sorted by length.
         """
         nids = self.find_branch_points()
-        cmps, cmp_label_dict = self.split_into_components( nids, from_parent=False )
-        return sorted( cmps, key = len, reverse=True)
+        cmps, cmp_label_dict = self.split_into_components( nids, from_parent=True )
+        D = self.dist_to_root()
+        cmps_ordered = []
+        for cmp in cmps:
+            cmps_ordered.append( sorted(cmp, key=lambda x:D[self.node2ind[x]]) )
+        return sorted( cmps_ordered, key = len, reverse=True)
 
 def synaptic_partner_tables( neurons,
                        include_presynaptic=True,
