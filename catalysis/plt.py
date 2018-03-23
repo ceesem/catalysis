@@ -213,4 +213,4 @@ def match_report_plot_data( nrn_q, nrns_t, matches, color_q=(0.2,0.2,0.2), color
                                   with_synapses=False,
                                   color=color_match,
                                   width=2 )
-    return nrn_q_data+nrn_t_data
+    return nrn_q_data + nrn_t_data

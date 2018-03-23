@@ -804,15 +804,17 @@ class CatmaidDataInterface():
 
     def get_landmarks( self, with_locations=True ):
         """
-            Get the landmarks from the 
+            Get all landmarks from CatmaidInstance
         """
         url = '/{}/landmarks/?with_locations={}'.format(
                     self.CatmaidClient.project_id,
                     str(with_locations).lower() )
         return self.CatmaidClient.fetch( url )
 
-    def get_landmark_groups( self, with_locations=True, with_members=True ):
+    def get_landmark_groups( self, with_locations=False, with_members=False ):
         """
+            Get landmark groups (set of landmarks that correspond to a category like left or right)
+            from the CatmaidInstance
         """
         url = '/{}/landmarks/groups/?with_locations={}&with_members={}'.format(
                     self.CatmaidClient.project_id,
@@ -820,6 +822,44 @@ class CatmaidDataInterface():
                     str(with_members).lower() )
         return self.CatmaidClient.fetch( url )
 
+    def match_groups_from_select_annotations( self, annotation_match, group_parser):
+        """
+            Use regex to select a set of annotations that correspond to repeated instances
+            of a category of neurons and then parse the different instances into groups.
+            For example, look at brain annotations and group them into left and right, 
+            or VNC annotations and group into segment.
 
+            Parameters
+            ----------
+            annotation_match : regex compile object
+                Regex object that matches on annotations to be considered (e.g. lineage names)
 
+            group_parser : regex compile object
+                Regex object that finds two strings, a common group name and a subgroup identifier.
+                One captured item must be called 'group' and the other 'instance'.
+                For example, re.compile('\*(?P<group>.*?)_(?P<instance>[rl]) akira') would find a core
+                lineage name and an r/l instance in a string like '*BAla12_r akira'
 
+            Returns 
+
+        """
+
+        select_annotations = []
+
+        annos = self.get_annotations()
+        for anno in annos:
+            if annotation_match.match(anno):
+                select_annotations.append(anno)
+        select_annotations = sorted(select_annotations)
+
+        groups = {}
+        
+        for anno in select_annotations:
+            group_name = group_parser.match(anno).groupdict()['group']
+            instance_name = group_parser.match(anno).groupdict()['instance']
+
+            if group_name not in groups:
+                groups[group_name] = {}
+            groups[group_name][instance_name] = anno
+
+        return groups

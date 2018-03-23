@@ -2,6 +2,8 @@ import pandas as pd
 import scipy as sp
 import numpy as np
 import networkx as nx
+import re
+import copy
 from bisect import bisect
 from multiprocessing import Pool
 from functools import partial
@@ -275,18 +277,22 @@ def match_report( nrns_q, Sb, min_similarity = 0.4 ):
             matches[nrn.id] = "No sufficiently good matches for " + nrn_key
         else:
             output = best_matches.to_frame()
-            matches[nrn.id] =  pd.DataFrame( { 'Matches for ' + nrn.name:best_matches, 'Match id': best_match_id } )
+            matches[nrn.id] =  output
     return matches
 
 def name_number( nrn ):
     return nrn.name + ' (' + str(nrn.id) + ')'
 
+# def name_number_to_id( n ):
+#     re.
+#     return 
 
 def similarity_matrix_to_adjacency( Sb, min_similarity=0.4 ):
     """
         Bring a similarity matrix into a networkx graph format (e.g. for matching)
     """    
     B = nx.Graph()
+
     nodes_from = list(Sb.index.values)
     nodes_to = list(Sb.columns.values)
 
@@ -303,17 +309,22 @@ def similarity_matrix_to_adjacency( Sb, min_similarity=0.4 ):
     B.remove_nodes_from( remove_isolates )
     return B
 
-def get_max_matching(Sb, min_similarity=0.4):
+def max_match_similarity(Sb, min_similarity=0.4, enforce_match=None, enforce_match_val=1 ):
 
-    B = similarity_matrix_to_adjacency( Sb, min_similarity=min_similarity)
-    Bsets = nx.bipartite.sets(B)    # Bsets[0] is query, Bsets[1] is target.
+    tempSb = copy.deepcopy(Sb)
+    if enforce_match is not None:
+        for force_match in enforce_match:
+            tempSb[force_match[1]][force_match[0]] = enforce_match_val
+
+    B = similarity_matrix_to_adjacency( tempSb, min_similarity=min_similarity)
+    Qset = [n for n,d in B.nodes(data=True) if d['bipartite']==0]
 
     matching = nx.algorithms.matching.max_weight_matching( B )
     name_q = []
     name_t = []
     match_val = []
     for match in matching:
-        if match[0] in Bsets[0]:
+        if match[0] in Qset:
             name_q.append(match[0])
             name_t.append(match[1])
             match_val.append(Sb[match[1]][match[0]])
