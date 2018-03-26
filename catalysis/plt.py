@@ -125,7 +125,7 @@ def neuronal_synapse_data( nrn, synapse_type, color, markersize ):
                 marker=dict(
                     symbol='circle',
                     size=markersize,
-                    color=cl.to_hex(postsynaptic_color) )
+                    color=cl.to_hex(color) )
             )
 
 

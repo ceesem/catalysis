@@ -14,20 +14,11 @@ def transform_neuronlist(
     """
 
     """
-    found_landmarks = False
-    if from_landmarks is None:
-        if to_landmarks is None:
-            print("Requesting landmarks...")
-            landmarks = landmark_group_list( CatmaidInterface )
-            from_landmarks, to_landmarks = landmark_points( landmarks[from_group],
-                                                            landmarks[to_group],
-                                                            CatmaidInterface )
-            found_landmarks = True
-    elif to_landmarks is not None:
-        print("Using stored landmarks...")
-        found_landmarks = True
-    else:
-        raise ValueError('Either server info or landmarks must be specified')
+    from_landmarks, to_landmarks = _parse_landmarks(from_group=from_group,
+                                                    to_group=to_group,
+                                                    CatmaidInterface=CatmaidInterface,
+                                                    from_landmarks=from_landmarks,
+                                                    to_landmarks=to_landmarks)
 
     nrns_t = deepcopy( nrns )
     for nrn in nrns_t:
@@ -50,21 +41,11 @@ def transform_neuron_from_landmarks(nrn,
     local landmarks.
     """
 
-    found_landmarks = False
-
-    if from_landmarks is None:
-        if to_landmarks is None:
-            print("Requesting landmarks...")
-            landmarks = landmark_group_list( CatmaidInterface )
-            from_landmarks, to_landmarks = landmark_points( landmarks[from_group],
-                                                            landmarks[to_group],
-                                                            CatmaidInterface )
-            found_landmarks = True
-    elif to_landmarks is not None:
-        print("Using stored landmarks...")
-        found_landmarks = True
-    else:
-        raise ValueError('Either server info or landmarks must be specified')
+    from_landmarks, to_landmarks = _parse_landmarks(from_group=from_group,
+                                                    to_group=to_group,
+                                                    CatmaidInterface=CatmaidInterface,
+                                                    from_landmarks=from_landmarks,
+                                                    to_landmarks=to_landmarks)
 
     nrn_t = deepcopy(nrn)
 
@@ -190,6 +171,45 @@ def landmark_points( from_group_ids, to_group_ids, CatmaidInterface ):
 
     return np.array( from_points ), np.array( to_points )
 
+def url_to_transformed_point( xyz0,
+                            CatmaidInterface,
+                            zoomlevel=0,
+                            from_group=None,
+                            to_group=None,
+                            from_landmarks=None,
+                            to_landmarks=None ):
+    """
+        
+    """
 
+    from_landmarks, to_landmarks = _parse_landmarks(from_group=from_group,
+                                                    to_group=to_group,
+                                                    CatmaidInterface=CatmaidInterface,
+                                                    from_landmarks=from_landmarks,
+                                                    to_landmarks=to_landmarks)
 
+    xyzt = moving_least_squares_affine_from_landmarks( xyz0,
+                                                       from_landmarks,
+                                                       to_landmarks,
+                                                       ws )
 
+    return CatmaidInterface.get_catmaid_url_to_point(xyzt, zoomlevel=zoomlevel)
+
+def _parse_landmarks(from_group=None,
+                     to_group=None,
+                     CatmaidInterface=None,
+                     from_landmarks=None,
+                     to_landmarks=None ):
+
+    if to_landmarks is not None and to_landmarks is not None:
+        print("Using stored landmarks...")
+    elif from_group is not None and to_group is not None and CatmaidInterface is not None:
+        print("Requesting landmarks...")
+        landmarks = landmark_group_list( CatmaidInterface )
+        from_landmarks, to_landmarks = landmark_points( landmarks[from_group],
+                                                        landmarks[to_group],
+                                                        CatmaidInterface )
+    else:
+        raise ValueError('Either complete server info or landmarks must be specified')
+
+    return from_landmarks, to_landmarks

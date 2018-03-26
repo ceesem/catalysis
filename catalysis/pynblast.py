@@ -2,6 +2,7 @@ import pandas as pd
 import scipy as sp
 import numpy as np
 import networkx as nx
+import catalysis as cat
 import re
 import copy
 from bisect import bisect
@@ -283,9 +284,9 @@ def match_report( nrns_q, Sb, min_similarity = 0.4 ):
 def name_number( nrn ):
     return nrn.name + ' (' + str(nrn.id) + ')'
 
-# def name_number_to_id( n ):
-#     re.
-#     return 
+def name_number_to_id( name_num ):
+    id_match = re.search('\((\d*)\)$',name_num)
+    return int(id_match.groups()[0])
 
 def similarity_matrix_to_adjacency( Sb, min_similarity=0.4 ):
     """
@@ -323,14 +324,94 @@ def max_match_similarity(Sb, min_similarity=0.4, enforce_match=None, enforce_mat
     name_q = []
     name_t = []
     match_val = []
+    match_ids_q = []
+    match_ids_t = []
     for match in matching:
         if match[0] in Qset:
             name_q.append(match[0])
             name_t.append(match[1])
             match_val.append(Sb[match[1]][match[0]])
+            match_ids_q.append( name_number_to_id(match[0]) )
+            match_ids_t.append( name_number_to_id(match[1]) )
         else:
             name_q.append(match[1])
             name_t.append(match[0])
             match_val.append(Sb[match[0]][match[1]])
+            match_ids_q.append( name_number_to_id(match[1]) )
+            match_ids_t.append( name_number_to_id(match[0]) )
 
-    return pd.DataFrame({'Query':name_q,'Target':name_t,'Max S':match_val}).sort_values(by='Max S',ascending=False)
+    return pd.DataFrame({'Query':name_q,'Query_id':match_ids_q,'Target':name_t,'Target_id':match_ids_t,'S':match_val}).sort_values(by='S',ascending=False).reset_index(drop=True)
+
+def compare_partners( score_lookup,
+                      nrn_q,
+                      nrn_t,
+                      CatmaidInterface,
+                      connection_type,
+                      from_landmarks,
+                      to_landmarks,
+                      resample_distance=1000,
+                      num_nn=5,
+                      min_strahler=None,
+                      ntop_q=2,
+                      kmin_t=3,
+                      normalized=False,
+                      return_full_similarity=False  ):
+    """
+        Finds a maximum max of NBLAST scores for partners of a queried neuron.
+        Parameters
+        ----------
+        score_lookup : ScoreMatrixLookup
+            nblast score matrix
+
+        nrn_q : NeuronObj
+            Neuron to query
+
+        nrn_t : NeuronObj
+            Target neuron
+
+        CatmaidInstance : CatmaidDataInterface
+            Needed to query the server for new data
+
+        connection_type : 'presynaptic' or 'postsynaptic'
+            Defines direction of connections to look at.
+
+        ntop_q : Positive Int
+            Number of top connections to consider
+    """
+
+    # Get top partners of query neuron
+    partner_ids_all_q = nrn_q.synaptic_partners( connection_type=connection_type )
+    ntop_q = min(ntop_q,len(partner_ids_all_q))
+    partner_nrns_q = cat.NeuronList.from_id_list( id_list = partner_ids_all_q[0:ntop_q,0],
+                                                  CatmaidInterface=CatmaidInterface,
+                                                  with_tags=False,
+                                                  with_annotations=False )
+
+    # Get (larger list of) top partners of target neuron
+    partner_ids_all_t = nrn_t.synaptic_partners( connection_type=connection_type,
+                                                 min_synapses=kmin_t,
+                                                 normalized=normalized )
+    partner_nrns_t = cat.NeuronList.from_id_list( id_list = partner_ids_all_t[0:ntop_q,0],
+                                                  CatmaidInterface=CatmaidInterface,
+                                                  with_tags=False,
+                                                  with_annotations=False )
+    partner_nrns_t_transformed = transform.transform_neuronlist(
+                                                nrns_t,
+                                                from_group=from_group,
+                                                to_group=to_group,
+                                                CatmaidInterface=CatmaidInterface)
+
+
+    Sb = exact_nblast( score_lookup,
+                       partner_nrns_q,
+                       partner_nrns_t_transformed,
+                       resample_distance=resample_distance,
+                       num_nn=num_nn,
+                       min_strahler=min_strahler )
+
+    matching = max_match_similarity( Sb )
+    
+    if return_full_similarity:
+        return matching, Sb
+    else:
+        return matching

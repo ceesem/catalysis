@@ -13,6 +13,7 @@ import csv
 import pandas as pd
 import gzip
 import copy
+from itertools import chain
 
 try:
     import cPickle as pickle
@@ -853,6 +854,43 @@ class NeuronObj:
         for cmp in cmps:
             cmps_ordered.append( sorted(cmp, key=lambda x:D[self.node2ind[x]]) )
         return sorted( cmps_ordered, key = len, reverse=True)
+
+    def synaptic_partners( self, connection_type, min_synapses = 0, normalized=False ):
+        """
+            Get synaptic partners of the neuron and number of synapses.
+            Parameters
+            ----------
+            connection_type : 'presynaptic' or 'postsynaptic'
+                Whether inputs or outputs are computed.
+
+            min_synapses : numeric (default 0)
+                Minimum weight of synapses/fraction synapses to return
+
+            normalized : Boolean (default False)
+                Determines if synaptic weight is computed as number of synapses
+                or fraction of all synapses in category.
+
+            Returns
+            -------
+            partner_list : numpy array
+                n x 2 array of partners, sorted descending by weight.
+                Each row is the id, partner weight.
+        """
+        if connection_type == 'presynaptic':
+            ids, syns = np.unique(list(self.inputs.from_ids.values()),return_counts=True)
+        elif connection_type == 'postsynaptic':
+            ids, syns = np.unique( [x for x in chain.from_iterable(self.outputs.target_ids.values()) ],return_counts=True )
+        else:
+            raise ValueError('connection_type must be \'presynaptic\' or \'postsynaptic\'')
+
+        if normalized:
+            syns = syns / np.sum(syns)
+
+        # Reorder to start with strongest partners
+        ids = ids[np.argsort(-syns)]
+        syns = -np.sort(-syns)
+        
+        return np.vstack( (ids[syns>=min_synapses], syns[syns>=min_synapses]) ).T
 
 def synaptic_partner_tables( neurons,
                        include_presynaptic=True,

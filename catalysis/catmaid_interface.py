@@ -28,7 +28,7 @@ class CatmaidDataInterface():
     def from_json( cls, filename ):
         return cls( client.CatmaidClient.from_json( filename ) )
 
-    def get_catmaid_url_to_point( self, xyz, node_skeleton_ids = None, tool = 'tracingtool', zoomlevel=0):
+    def get_url_to_point( self, xyz, node_skeleton_ids = None, tool = 'tracingtool', zoomlevel=0):
         """
             Generate a URL that goes to a specified location (and, optionally, a selected node) in a CATMAID instance.
 
@@ -50,7 +50,7 @@ class CatmaidDataInterface():
 
         """
         base_url = self.CatmaidClient.base_url + '/?'
-        pid_str = 'pid=' + self.CatmaidClient.project_id
+        pid_str = 'pid=' + str(self.CatmaidClient.project_id)
         x_str = 'xp=' + str( xyz[0] )
         y_str = 'yp=' + str( xyz[1] )
         z_str = 'zp=' + str( xyz[2] )
