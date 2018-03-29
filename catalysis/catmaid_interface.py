@@ -4,6 +4,8 @@ from catpy import *
 from itertools import chain
 import networkx as nx
 import numpy as np
+from IPython.core.display import display, HTML
+
 
 class CatmaidDataInterface():
     """
@@ -28,7 +30,7 @@ class CatmaidDataInterface():
     def from_json( cls, filename ):
         return cls( client.CatmaidClient.from_json( filename ) )
 
-    def get_url_to_point( self, xyz, node_skeleton_ids = None, tool = 'tracingtool', zoomlevel=0):
+    def url_to_point( self, xyz, node_skeleton_ids = None, tool = 'tracingtool', zoomlevel=0):
         """
             Generate a URL that goes to a specified location (and, optionally, a selected node) in a CATMAID instance.
 
@@ -64,6 +66,39 @@ class CatmaidDataInterface():
         else:
             strs = [base_url,pid_str,x_str,y_str,z_str,tool_str,sid_str,zoom_str]
         return '&'.join(strs)
+
+    def url_to_neurons( self, id_list ):
+        """
+            Generate CATMAID url to the neuron's root for each neuron in an iterable
+            id list.
+        """
+        if isinstance(id_list, (int, np.integer)):
+            id_list = [id_list]
+
+        names = self.get_neuron_names(id_list)
+
+        for neuron_id in id_list:
+            root_info = self.root_for_skeleton( neuron_id )
+            xyz = [root_info['x'], root_info['y'], root_info['z']]
+            display(HTML(
+                '<a href="{}">{}</a>'.format(
+                                self.url_to_point( xyz,
+                                                  (root_info['root_id'], neuron_id)
+                                                  ),
+                                names[str(neuron_id)] )
+                ))
+        return None
+
+
+    def node_location( self, node_id ):
+        """
+    
+        """
+        url = '/{}/treenodes/{}/compact-detail'.format(self.CatmaidClient.project_id,
+                                                       node_id )
+        d = self.CatmaidClient.get(url)
+        xyz = [d['x'],d['y'],d['z']]
+        return xyz
 
     def get_neuron_name( self, skeleton_id ):
         """
@@ -513,7 +548,7 @@ class CatmaidDataInterface():
         else:
             return anno_to_skids
 
-    def add_annotation( self, annotation_list, id_list ):
+    def add_annotation( self, annotation_list, id_list, meta_list=None ):
         """
             Add annotations to neurons in the CATMAID database.
 
@@ -524,6 +559,9 @@ class CatmaidDataInterface():
 
             id_list : list of ints
                 Skeleton ids to which to add annotations.
+            
+            meta_list : list of strings
+                Meta-annotations to add to annotations in annotation_list.
 
             Returns
             ----------
@@ -535,6 +573,8 @@ class CatmaidDataInterface():
             annotation_list = [annotation_list]
         if type(id_list) is int:
             id_list = [id_list]
+        if type(meta_list) is str:
+            meta_list = [meta_list]
 
         url = '/{}/annotations/add'.format( self.CatmaidClient.project_id )
         postdata = dict()
@@ -542,6 +582,9 @@ class CatmaidDataInterface():
             postdata['annotations[{}]'.format(i)] = anno
         for i, id in enumerate(id_list):
             postdata['skeleton_ids[{}]'.format(i)] = id
+        if meta_list is not None:
+            for i, id in enumerate(meta_list):
+                postdata['meta_annotations[{}]'.format(i)] = id
         d = self.CatmaidClient.post( url, data=postdata )
         return d
 

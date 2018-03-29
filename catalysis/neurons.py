@@ -133,7 +133,7 @@ class NeuronList:
                     CatmaidInterface = self.CatmaidInterface,
                     project_name = self.project_name,
                     export_date = self.export_date
-                    )    #
+                    )
 
     @classmethod
     def from_id_list( cls, id_list, CatmaidInterface, with_tags = True, with_annotations = True, project_name = None, max_neurons_per_post=100):
@@ -877,9 +877,9 @@ class NeuronObj:
                 Each row is the id, partner weight.
         """
         if connection_type == 'presynaptic':
-            ids, syns = np.unique(list(self.inputs.from_ids.values()),return_counts=True)
+            ids, syns = np.unique(list(filter(None,self.inputs.from_ids.values())),return_counts=True)
         elif connection_type == 'postsynaptic':
-            ids, syns = np.unique( [x for x in chain.from_iterable(self.outputs.target_ids.values()) ],return_counts=True )
+            ids, syns = np.unique( [x for x in chain.from_iterable(self.outputs.target_ids.values()) if x is not None],return_counts=True )
         else:
             raise ValueError('connection_type must be \'presynaptic\' or \'postsynaptic\'')
 

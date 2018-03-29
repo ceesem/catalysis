@@ -8,6 +8,7 @@ import copy
 from bisect import bisect
 from multiprocessing import Pool
 from functools import partial
+import catalysis.transform as transform
 
 def nblast_neuron_pair( nrn_q, nrn_t, score_lookup, resample_distance = 1000, num_nn = 5, normalize=False ):
     """
@@ -38,7 +39,7 @@ def _nblast_neuron_pair_for_mp( input ):
     num_nn = input[4]
     normalize = input[5]
 
-    # Check if neurons are effectively emtpy, likely do to Strahler pruning.
+    # Check if neurons are effectively emtpy, likely due to Strahler pruning.
     if len( nrn_q_dotprop ) > 1 and len(nrn_t_dotprop) > 1:
         d_and_udotv = neuron_comparison_nblast_components( nrn_q_dotprop, nrn_t_dotprop, resample_distance=resample_distance, num_nn = num_nn, as_dotprop = True )
         S = nblast_dist_fun( d_and_udotv, score_lookup )
@@ -192,10 +193,6 @@ def nblast_neurons(score_lookup, nrns_q, nrns_t=None, resample_distance=1000, nu
 
     pool = Pool( processes=processes )
     neuron_to_dotprop_cond = partial( neuron_to_dotprop, resample_distance=resample_distance, min_strahler=min_strahler, num_nn=num_nn)
-    # if min_strahler is None:
-    #     nrns_q_dotprop_list = pool.map( neuron_to_dotprop_cond, nrns_q )
-    # else:
-    #     nrns_q_dotprop_list = pool.map( neuron_to_dotprop_cond, [nrn.strahler_filter(min_strahler) for nrn in nrns_q] )
     nrns_q_dotprop_list = pool.map( neuron_to_dotprop_cond, nrns_q )
     nrns_q_dotprop = {nrn.id:nrns_q_dotprop_list[ii] for ii, nrn in enumerate(nrns_q) }
 
@@ -205,10 +202,6 @@ def nblast_neurons(score_lookup, nrns_q, nrns_t=None, resample_distance=1000, nu
     else:
         nrns_t_dotprop = {}
         for nrn in nrns_t:
-            # if min_strahler is None:
-            #     nrns_t_dotprop_list = pool.map( neuron_to_dotprop_cond, nrns_t )
-            # else:
-            #     nrns_t_dotprop_list = pool.map( neuron_to_dotprop_cond, [nrn.strahler_filter(min_strahler) for nrn in nrns_t] )
             nrns_t_dotprop_list = pool.map( neuron_to_dotprop_cond, nrns_t )
             nrns_t_dotprop = {nrn.id:nrns_t_dotprop_list[ii] for ii, nrn in enumerate(nrns_t) }
 
@@ -231,7 +224,13 @@ def nblast_neurons(score_lookup, nrns_q, nrns_t=None, resample_distance=1000, nu
     return df
 
 
-def exact_nblast(score_lookup, nrns_q, nrns_t, resample_distance=1000, num_nn=5, min_strahler=None, processes=4 ):
+def exact_nblast(score_lookup,
+                nrns_q,
+                nrns_t,
+                resample_distance=1000,
+                num_nn=5,
+                min_strahler=None,
+                processes=4 ):
     """
         Compute a symmetric normalized version of NBLAST to test for "exact
         matches", as the geometric mean of query to target and target to query.
@@ -261,6 +260,8 @@ def exact_nblast(score_lookup, nrns_q, nrns_t, resample_distance=1000, num_nn=5,
                         ).pivot(  index='Targets',
                                   columns='Queries',
                                   values='S' )
+    Stq[Stq<0]=0
+    Sqt[Sqt<0]=0
     return Sqt.multiply( Stq ).apply( np.sqrt ).fillna( 0 )
 
 def match_report( nrns_q, Sb, min_similarity = 0.4 ):
@@ -339,23 +340,30 @@ def max_match_similarity(Sb, min_similarity=0.4, enforce_match=None, enforce_mat
             match_val.append(Sb[match[0]][match[1]])
             match_ids_q.append( name_number_to_id(match[1]) )
             match_ids_t.append( name_number_to_id(match[0]) )
-
-    return pd.DataFrame({'Query':name_q,'Query_id':match_ids_q,'Target':name_t,'Target_id':match_ids_t,'S':match_val}).sort_values(by='S',ascending=False).reset_index(drop=True)
+    match_df = pd.DataFrame({'Query_name':name_q,'Query_id':match_ids_q,'Target_name':name_t,'Target_id':match_ids_t,'S':match_val}).sort_values(by='S',ascending=False).reset_index(drop=True)
+    return match_df.reindex(['S',
+                      'Query_name',
+                      'Query_id',
+                      'Target_name',
+                      'Target_id'], axis = 1)
 
 def compare_partners( score_lookup,
                       nrn_q,
                       nrn_t,
                       CatmaidInterface,
                       connection_type,
-                      from_landmarks,
-                      to_landmarks,
+                      from_group,
+                      to_group,
                       resample_distance=1000,
                       num_nn=5,
                       min_strahler=None,
                       ntop_q=2,
+                      kmin_f=0.5,
                       kmin_t=3,
                       normalized=False,
-                      return_full_similarity=False  ):
+                      return_full_similarity=False,
+                      return_neurons=False,
+                      contralateral=True  ):
     """
         Finds a maximum max of NBLAST scores for partners of a queried neuron.
         Parameters
@@ -377,6 +385,13 @@ def compare_partners( score_lookup,
 
         ntop_q : Positive Int
             Number of top connections to consider
+
+        kmin_f : float (between 0 and 1)
+            Fraction of query synapses to include in target search. E.g. If the
+            connection is X synapses in the minimum weight connection in the
+            query, look for partners with more than kmin_f * X synapses in
+            target.
+
     """
 
     # Get top partners of query neuron
@@ -384,22 +399,25 @@ def compare_partners( score_lookup,
     ntop_q = min(ntop_q,len(partner_ids_all_q))
     partner_nrns_q = cat.NeuronList.from_id_list( id_list = partner_ids_all_q[0:ntop_q,0],
                                                   CatmaidInterface=CatmaidInterface,
-                                                  with_tags=False,
+                                                  with_tags=True,
                                                   with_annotations=False )
+
+    min_synapses = int(max( kmin_t, kmin_f*partner_ids_all_q[ntop_q-1,1] ) )
 
     # Get (larger list of) top partners of target neuron
     partner_ids_all_t = nrn_t.synaptic_partners( connection_type=connection_type,
-                                                 min_synapses=kmin_t,
+                                                 min_synapses=min_synapses,
                                                  normalized=normalized )
-    partner_nrns_t = cat.NeuronList.from_id_list( id_list = partner_ids_all_t[0:ntop_q,0],
+    partner_nrns_t = cat.NeuronList.from_id_list( id_list = partner_ids_all_t[:,0],
                                                   CatmaidInterface=CatmaidInterface,
-                                                  with_tags=False,
+                                                  with_tags=True,
                                                   with_annotations=False )
     partner_nrns_t_transformed = transform.transform_neuronlist(
-                                                nrns_t,
+                                                partner_nrns_t,
                                                 from_group=from_group,
                                                 to_group=to_group,
-                                                CatmaidInterface=CatmaidInterface)
+                                                CatmaidInterface=CatmaidInterface,
+                                                contralateral=contralateral)
 
 
     Sb = exact_nblast( score_lookup,
@@ -408,10 +426,32 @@ def compare_partners( score_lookup,
                        resample_distance=resample_distance,
                        num_nn=num_nn,
                        min_strahler=min_strahler )
-
     matching = max_match_similarity( Sb )
+
+    # Add synapses 
+    q_syn = []
+    for nid in matching['Query_id']:
+        q_syn.append(partner_ids_all_q[partner_ids_all_q[:,0]==nid,1][0])
+    t_syn = []
+    for nid in matching['Target_id']:
+        t_syn.append(partner_ids_all_t[partner_ids_all_t[:,0]==nid,1][0])
+    syn_df = pd.DataFrame({'Query_synapses': q_syn, 'Target_synapses': t_syn})
+    matching = matching.join(syn_df)
+    matching = matching.reindex(['S',
+                      'Query_name',
+                      'Query_id',
+                      'Target_name',
+                      'Target_id',
+                      'Query_synapses',
+                      'Target_synapses'], axis = 1)
     
+    out = {}
+    out['matching'] = matching
     if return_full_similarity:
-        return matching, Sb
-    else:
-        return matching
+        out['similarity'] = Sb
+    
+    if return_neurons:
+        out['partners_q'] = partner_nrns_q.slice_by_id(matching['Query_id'])
+        out['partners_t'] = partner_nrns_t_transformed.slice_by_id(matching['Target_id'])
+
+    return out

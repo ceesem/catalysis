@@ -600,33 +600,37 @@ def match_report( id_list1, id_list2, match_via, CatmaidInterface, name1='Group 
 
 def match_report_from_annos( anno1, anno2, match_via, CatmaidInterface, anno_reference = 'names'):
     """
-                Given two lists of neurons, match their elements if they share an annotation (such as cell type) indicated by a specific metaannotation.
+        Given two lists of neurons, match their elements if they share
+        an annotation (such as cell type) indicated by a specific
+        metaannotation.
 
-                Parameters
-                ----------
-                    anno1 : string
-                        Name of the annotation to query for group 1.
+        Parameters
+        ----------
+            anno1 : string
+                Name of the annotation to query for group 1.
 
-                    anno2 : string
-                        Name of the annotation to query for group 2.
+            anno2 : string
+                Name of the annotation to query for group 2.
 
-                    match_via : string or int
-                        Annotation (as name or id) that annotates the annotatoins to match.
+            match_via : string or int
+                Annotation (as name or id) that annotates the annotatoins to
+                match.
 
-                    CatmaidInterface : CatmaidDataInterface
-                        Interface for the Catmaid instance to query.
+            CatmaidInterface : CatmaidDataInterface
+                Interface for the Catmaid instance to query.
 
-                    anno_reference : 'names' or 'ids' (optional, default is 'names')
-                        Determines how annotations are refered to, either as strings or ids.
+            anno_reference : 'names' or 'ids' (optional, default is 'names')
+                Determines how annotations are refered to, either as strings or
+                ids.
 
-                Returns
-                -------
-                    DataFrame
-                        Organized, readable match report
+        Returns
+        -------
+            DataFrame
+                Organized, human-readable match report
 
     """
-    return match_report( CatmaidInterface.get_ids_from_annotation([anno1])[anno1],
-                         CatmaidInterface.get_ids_from_annotation([anno2])[anno2],
+    return match_report( CatmaidInterface.get_ids_from_annotations(anno1,flatten=True),
+                         CatmaidInterface.get_ids_from_annotations(anno2,flatten=True),
                          match_via,
                          CatmaidInterface,
                          name1 = anno1,
@@ -673,6 +677,47 @@ def report_from_meta( meta, CatmaidInterface):
             DataFrame
                 Report for the annotations within the meta-annotation.
     """
-    anno_list = CatmaidInterface.get_annotations_from_meta_annotations( meta, flatten=True )
-    anno_names = CatmaidInterface.parse_annotation_list(anno_list, output='names')
+    anno_list = CatmaidInterface.get_annotations_from_meta_annotations(
+                    meta, flatten=True )
+    anno_names = CatmaidInterface.parse_annotation_list(anno_list,
+                    output='names')
     return report_from_annotation_list( anno_names, CatmaidInterface )
+
+def assert_pair( nrn_ids, pair_meta, CatmaidInterface ):
+    """
+        Use a id-based annotation with a pair-specifying meta-annotation to
+        establish hemilateral pairs in CATMAID.
+
+        While nrn_ids will usually be a pair, we have to account for the
+        cases where there are multiple indistinguishable neurons (e.g.
+        broad LNs). Naming order will be numerical, since this approahc doesn't
+        have a unique left/right ordering.
+    """
+
+    # Check to see if neurons are already in a pair
+    all_pair_annos = set(CatmaidInterface.get_annotations_from_meta_annotations(
+                    pair_meta, flatten=True ) )
+    nrn_annos = set( CatmaidInterface.get_annotations_for_objects(
+                            nrn_ids ) )
+
+    if len( all_pair_annos.intersection( nrn_annos ) ) > 0:
+        for nrn_id in nrn_ids:
+            specific_nrn_annos = set( CatmaidInterface.get_annotations_for_objects(
+                                [ nrn_id ] ) )
+            if len( specific_nrn_annos.intersection( all_pair_annos ) ) > 0:
+                print( "Neuron with id {} is already paired!".format(nrn_id) )
+    else:
+        if len(nrn_ids) < 4:
+            pair_name = 'hemilateral_pair' + ''.join(
+                    ['_{}'.format(nid) for nid in sorted(nrn_ids)])
+        else:
+            pair_name = 'hemilateral_pair' + ''.join(
+                    ['_{}'.format(nid) for nid in sorted(nrn_ids[0:4])])+'_etc'
+
+        d = CatmaidInterface.add_annotation(annotation_list=[pair_name],
+                                            id_list=nrn_ids,
+                                            meta_list=pair_meta)
+        if len(d['new_annotations'])==0:
+            print('Warning! No new annotations created!')
+        print(d['message'])
+    return

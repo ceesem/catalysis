@@ -2,6 +2,7 @@ import numpy as np
 import scipy as sp
 import catalysis as cat
 import sys
+import tqdm
 from copy import deepcopy
 
 def transform_neuronlist(
@@ -10,7 +11,8 @@ def transform_neuronlist(
                         to_group=None,
                         CatmaidInterface=None,
                         from_landmarks=None,
-                        to_landmarks=None ):
+                        to_landmarks=None,
+                        contralateral=True ):
     """
 
     """
@@ -18,10 +20,11 @@ def transform_neuronlist(
                                                     to_group=to_group,
                                                     CatmaidInterface=CatmaidInterface,
                                                     from_landmarks=from_landmarks,
-                                                    to_landmarks=to_landmarks)
+                                                    to_landmarks=to_landmarks,
+                                                    contralateral=contralateral)
 
     nrns_t = deepcopy( nrns )
-    for nrn in nrns_t:
+    for nrn in tqdm.tqdm(nrns_t):
         nrns_t.neurons[nrn.id] = transform_neuron_from_landmarks(
                                     nrn,
                                     from_landmarks=from_landmarks,
@@ -34,7 +37,9 @@ def transform_neuron_from_landmarks(nrn,
                                     to_group=None,
                                     CatmaidInterface=None,
                                     from_landmarks=None,
-                                    to_landmarks=None ):
+                                    to_landmarks=None,
+                                    contralateral=True,
+                                    transform_synapses=False ):
     """
     Use moving least squares to transform all space-related points on a neuron,
     either by requesting points from the catmaid server or with stored
@@ -45,7 +50,8 @@ def transform_neuron_from_landmarks(nrn,
                                                     to_group=to_group,
                                                     CatmaidInterface=CatmaidInterface,
                                                     from_landmarks=from_landmarks,
-                                                    to_landmarks=to_landmarks)
+                                                    to_landmarks=to_landmarks,
+                                                    contralateral=True)
 
     nrn_t = deepcopy(nrn)
 
@@ -54,39 +60,60 @@ def transform_neuron_from_landmarks(nrn,
 
     # Transform all the nodes.
     #print("Transforming nodes...")
-    for nid in nrn_t.nodeloc:
-        v = np.array(nrn_t.nodeloc[nid])
-        ws = compute_weights( v, from_landmarks )
-        nrn_t.nodeloc[nid] = moving_least_squares_affine_from_landmarks(
-                                                            v,
+    vs = np.array([nrn_t.nodeloc[nid] for nid in nrn_t.nodeloc])
+    vprimes = moving_least_squares_affine_vectorized(vs,from_landmarks,to_landmarks)
+    for ind, nid in enumerate(nrn_t.nodeloc):
+        nrn_t.nodeloc[nid] = vprimes[ind,:]
+
+    if transform_synapses:
+        vins = np.array([nrn_t.inputs.locs[cid] for cid in nrn_t.inputs.locs])
+        vinprimes = moving_least_squares_affine_vectorized( vins,
                                                             from_landmarks,
-                                                            to_landmarks,
-                                                            ws )
+                                                            to_landmarks)
+        for ind, cid in enumerate(nrn_t.inputs.locs):
+            nrn_t.inputs.locs[cid] = vinprimes[ind,:]
+
+        vouts = np.array([nrn_t.outputs.locs[cid] for cid in nrn_t.outputs.locs])
+        voutprimes = moving_least_squares_affine_vectorized( vouts,
+                                                            from_landmarks,
+                                                            to_landmarks)
+        for ind, cid in enumerate(nrn_t.outputs.locs):
+            nrn_t.outputs.locs[cid] = voutprimes[ind,:]
+
+    # for nid in nrn_t.nodeloc:
+    #     v = np.array(nrn_t.nodeloc[nid])
+    #     ws = compute_weights( v, from_landmarks )
+    #     nrn_t.nodeloc[nid] = moving_least_squares_affine_from_landmarks(
+    #                                                         v,
+    #                                                         from_landmarks,
+    #                                                         to_landmarks,
+    #                                                         ws )
+
     # Transform all the synapse locations.
     #print("Transforming synapses...")
-
-    for vid in nrn_t.inputs.locs:
-        v = np.array(nrn_t.inputs.locs[vid])
-        ws = compute_weights( v, from_landmarks )
-        nrn_t.inputs.locs[vid] = moving_least_squares_affine_from_landmarks(
-                                                            v,
-                                                            from_landmarks,
-                                                            to_landmarks,
-                                                            ws )
-    for vid in nrn_t.outputs.locs:
-        v = np.array(nrn_t.outputs.locs[vid])
-        ws = compute_weights( v, from_landmarks )
-        nrn_t.outputs.locs[vid] = moving_least_squares_affine_from_landmarks(
-                                                            v,
-                                                            from_landmarks,
-                                                            to_landmarks,
-                                                            ws )
+    # if transform_synapses:
+    #     for vid in nrn_t.inputs.locs:
+    #         v = np.array(nrn_t.inputs.locs[vid])
+    #         ws = compute_weights( v, from_landmarks )
+    #         nrn_t.inputs.locs[vid] = moving_least_squares_affine_from_landmarks(
+    #                                                             v,
+    #                                                             from_landmarks,
+    #                                                             to_landmarks,
+    #                                                             ws )
+    #     for vid in nrn_t.outputs.locs:
+    #         v = np.array(nrn_t.outputs.locs[vid])
+    #         ws = compute_weights( v, from_landmarks )
+    #         nrn_t.outputs.locs[vid] = moving_least_squares_affine_from_landmarks(
+    #                                                             v,
+    #                                                             from_landmarks,
+    #                                                             to_landmarks,
+    #                                                             ws )
 
     return nrn_t
 
 def moving_least_squares_affine_from_landmarks( v, ps, qs, ws ):
     """
-    Compute the 3d affine deformation minizing
+    Compute the 3d affine deformation minimizing
     sum_i( w_i * ( A(p_i) - q_i )^2 ) based on Schaefer et al 2006
 
     Parameters
@@ -119,6 +146,57 @@ def moving_least_squares_affine_from_landmarks( v, ps, qs, ws ):
     v_transform = np.einsum('i,ij->j',A,q_hat) + q_star
 
     return v_transform
+
+def moving_least_squares_affine_vectorized( vs, ps, qs ):
+    """
+    Compute the 3d affine deformation based on Schaefer et al 2006.
+    Parameters
+    ----------
+    vs : Npoint x 3 numpy array
+        Block of points to be transformed
+
+    ps : Nlandmark x 3 numpy array
+        Block of landmarks in the starting coordinates
+
+    qs : Nlandmark x 3 numpy array
+        Block of landmarks in the transformed coordinates, matched indices.
+    
+    Returns
+    -------
+
+    vprime : Npoint x 3 numpy array
+        Block of points in the transformed coordinates.
+    """
+    Nlandmark = len(ps)
+    Npoint = len( vs )
+
+    # Reshape into arrays with consistent indices
+    ps = ps.ravel().reshape(1,3,Nlandmark,1,order='F')
+    qs = qs.ravel().reshape(1,3,Nlandmark,1,order='F')
+    vs = vs.ravel().reshape(1,3,1,Npoint,order='F')
+
+    ds = sp.spatial.distance.cdist(ps.ravel('F').reshape(Nlandmark,3),vs.ravel('F').reshape(Npoint,3), "sqeuclidean").reshape(1,1,Nlandmark,Npoint)+sys.float_info.epsilon
+    ws = 1/ds
+
+    wi_norm_inv = 1/np.sum(ws,axis=2)
+    pstar = np.einsum('ijl,ijkl,ijkl->ijl',wi_norm_inv,ws,ps).reshape(1,3,1,Npoint)
+    qstar = np.einsum('ijl,ijkl,ijkl->ijl',wi_norm_inv,ws,qs).reshape(1,3,1,Npoint)
+
+    phat = ps - pstar
+    qhat = qs - qstar
+
+    vminusp = vs - pstar
+
+    Y = np.einsum('ijkl,mikl,mjkl->ijl',ws,phat,phat).reshape(3,3,1,Npoint)
+    Yinv = np.zeros((3,3,1,Npoint))
+    for i in range(Npoint):
+        Yinv[:,:,0,i] = np.linalg.inv( Y[:,:,0,i] )
+        
+    Z = np.einsum('ijkl,mikl,mjkl->ijl',ws,phat,qhat).reshape(3,3,1,Npoint)
+
+    vprime = np.einsum('iakl,abkl,bjkl->ijkl',vminusp,Yinv,Z) + qstar
+    vprime = vprime.ravel('F').reshape(Npoint,3)
+    return vprime
 
 
 def recenter_landmarks( ps, ws ):
@@ -177,7 +255,8 @@ def url_to_transformed_point( xyz0,
                             from_group=None,
                             to_group=None,
                             from_landmarks=None,
-                            to_landmarks=None ):
+                            to_landmarks=None,
+                            contralateral=True):
     """
         
     """
@@ -186,7 +265,8 @@ def url_to_transformed_point( xyz0,
                                                     to_group=to_group,
                                                     CatmaidInterface=CatmaidInterface,
                                                     from_landmarks=from_landmarks,
-                                                    to_landmarks=to_landmarks)
+                                                    to_landmarks=to_landmarks,
+                                                    contralateral=contralateral)
 
     xyzt = moving_least_squares_affine_from_landmarks( xyz0,
                                                        from_landmarks,
@@ -199,17 +279,25 @@ def _parse_landmarks(from_group=None,
                      to_group=None,
                      CatmaidInterface=None,
                      from_landmarks=None,
-                     to_landmarks=None ):
-
-    if to_landmarks is not None and to_landmarks is not None:
-        print("Using stored landmarks...")
-    elif from_group is not None and to_group is not None and CatmaidInterface is not None:
-        print("Requesting landmarks...")
+                     to_landmarks=None,
+                     contralateral=True):
+    """
+        Either takes landmarks as inputs or pulls them from a catmaid server.
+        If contralateral is True (the default), all landmarks are used and mirrored so that
+        a contralateral landmark is mapped to an ipsilateral point, etc.
+    """
+    if from_group is not None and to_group is not None and CatmaidInterface is not None:
+        #print("Requesting landmarks...")
         landmarks = landmark_group_list( CatmaidInterface )
         from_landmarks, to_landmarks = landmark_points( landmarks[from_group],
                                                         landmarks[to_group],
                                                         CatmaidInterface )
-    else:
+    elif to_landmarks is None or to_landmarks is None:
         raise ValueError('Either complete server info or landmarks must be specified')
+
+    if contralateral:
+        store_to_landmarks = deepcopy(to_landmarks)
+        to_landmarks = np.vstack((to_landmarks,from_landmarks))
+        from_landmarks = np.vstack((from_landmarks,store_to_landmarks))
 
     return from_landmarks, to_landmarks
