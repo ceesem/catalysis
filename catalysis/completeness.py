@@ -3,6 +3,7 @@ import catalysis.neurons as na
 
 from collections import defaultdict
 import pandas as pd
+import numpy as np
 from numpy import NaN
 
 def root_is_soma( nrn ):
@@ -525,7 +526,7 @@ def match_groups( id_list1, id_list2, match_via, CatmaidInterface, anno_referenc
             dict
                 Match report, indexed by annotation name or id.
     """
-    annos_with_meta = set(CatmaidInterface.get_annotations_from_meta_annotations( match_via ) )
+    annos_with_meta = set(CatmaidInterface.get_annotations_from_meta_annotations( match_via, flatten=True ) )
     annos1 = { id: set(CatmaidInterface.get_annotations_for_objects( [id] )).intersection(annos_with_meta) for id in id_list1}
     annos2 = { id: set(CatmaidInterface.get_annotations_for_objects( [id] )).intersection(annos_with_meta) for id in id_list2}
 
@@ -536,7 +537,7 @@ def match_groups( id_list1, id_list2, match_via, CatmaidInterface, anno_referenc
                 if anno_reference is 'ids':
                     matches[anno_id] = [id1, id2]
                 elif anno_reference is 'names':
-                    matches[ CatmaidInterface.parse_annotation_list(anno_id, output='names') ] = [id1, id2]
+                    matches[ CatmaidInterface.parse_annotation_list(anno_id, output='names')[0] ] = [id1, id2]
 
     return matches
 
@@ -579,21 +580,24 @@ def match_report( id_list1, id_list2, match_via, CatmaidInterface, name1='Group 
     matched = [[],[]]
     match_report1 = {}
     match_report2 = {}
-    for anno_id in matches:
-        #anno_name = annos[anno_id] + ' (' + str(anno_id) + ')'
-        anno_name = rev_dict[anno_id] + ' (' + str(anno_id) + ')'
-        matched[0].append( matches[anno_id][0] )
-        matched[1].append( matches[anno_id][1] )
-        match_report1[ anno_name ] = matches[anno_id][0]
-        match_report2[ anno_name ] = matches[anno_id][1]
+    for anno in matches:
+        if type(anno) is int:
+            #anno_name = annos[anno_id] + ' (' + str(anno_id) + ')'
+            anno_name = rev_dict[anno] + ' (' + str(anno) + ')'
+        else:
+            anno_name = anno
+        matched[0].append( matches[anno][0] )
+        matched[1].append( matches[anno][1] )
+        match_report1[ anno_name ] = matches[anno][0]
+        match_report2[ anno_name ] = matches[anno][1]
 
     unmatched1 = set(id_list1).difference( set(match_report1.values()) )
     unmatched2 = set(id_list2).difference( set(match_report2.values()) )
     match_report1['Unmatched'] = list(unmatched1)
     match_report2['Unmatched'] = list(unmatched2)
 
-    print( str( len(set(matched[0])) ) + ' of ' + str(len(id_list1)) + ' of ' + name1 + ' matched...')
-    print( str( len(set(matched[1])) ) + ' of ' + str(len(id_list2)) + ' of ' + name2 +  ' matched...')
+    # print( str( len(set(matched[0])) ) + ' of ' + str(len(id_list1)) + ' of ' + name1 + ' matched...')
+    # print( str( len(set(matched[1])) ) + ' of ' + str(len(id_list2)) + ' of ' + name2 +  ' matched...')
 
     report = pd.DataFrame( { name1: match_report1, name2: match_report2} )
     return report
@@ -613,7 +617,7 @@ def match_report_from_annos( anno1, anno2, match_via, CatmaidInterface, anno_ref
                 Name of the annotation to query for group 2.
 
             match_via : string or int
-                Annotation (as name or id) that annotates the annotatoins to
+                Annotation (as name or id) that annotates the annotations to
                 match.
 
             CatmaidInterface : CatmaidDataInterface
@@ -721,3 +725,434 @@ def assert_pair( nrn_ids, pair_meta, CatmaidInterface ):
             print('Warning! No new annotations created!')
         print(d['message'])
     return
+
+def is_matched( nrn_ids, pair_meta, CatmaidInterface ):
+    """
+        is_matched( nrn_ids, pair_meta, CatmaidInterface)
+    """
+    annos_with_meta = CatmaidInterface.get_annotations_from_meta_annotations( pair_meta, flatten=True )
+    ids_matched = CatmaidInterface.get_ids_from_annotations(annos_with_meta, flatten=True)
+    has_match = {}
+    for skid in nrn_ids:
+        if skid in ids_matched:
+            has_match[skid] = True
+        else:
+            has_match[skid] = False
+    return has_match
+
+def matched_complete_report( anno_list, pair_meta, CatmaidInterface, max_open_ends=0.03, min_nodes = 500 ):
+    """
+
+    """
+    anno_names = []
+    left_incom = []
+    left_com = []
+    left_incom_match = []
+    left_com_match = []
+    left_total = []
+
+    right_incom = []
+    right_com = []
+    right_incom_match = []
+    right_com_match = []
+    right_total = []
+
+    for anno in anno_list:
+        if len(anno_list[anno]) < 2:
+            continue
+        else:
+            print(anno)
+        anno_names.append(anno)
+        
+        nrns_left_ids = CatmaidInterface.get_ids_from_annotations(
+                                                        anno_list[anno]['l'],
+                                                        flatten=True )
+        
+        is_matched_left = is_matched( nrns_left_ids, pair_meta, CatmaidInterface )
+        props_left = property_summary_estimated( nrns_left_ids, CatmaidInterface )
+        props_left['is_matched'] = pd.Series(is_matched_left)
+        lincom, lincom_match, lcom, lcom_match = _match_category_helper(
+                                                    props_left,
+                                                    max_open_ends=max_open_ends,
+                                                    min_nodes=min_nodes )
+
+        left_incom.append( lincom )
+        left_incom_match.append( lincom_match )
+        left_com.append( lcom )
+        left_com_match.append( lcom_match )
+        left_total.append( lincom+lincom_match+lcom+lcom_match )
+        
+        nrns_right_ids = CatmaidInterface.get_ids_from_annotations(
+                                                        anno_list[anno]['r'],
+                                                        flatten=True )
+        
+        is_matched_right = is_matched( nrns_right_ids, pair_meta, CatmaidInterface )
+        props_right = property_summary_estimated( nrns_right_ids, CatmaidInterface )
+        props_right['is_matched'] = pd.Series(is_matched_right)
+        rincom, rincom_match, rcom, rcom_match = _match_category_helper(
+                                                    props_right,
+                                                    max_open_ends=max_open_ends,
+                                                    min_nodes=min_nodes )
+
+        right_incom.append( rincom )
+        right_incom_match.append( rincom_match )
+        right_com.append( rcom )
+        right_com_match.append( rcom_match )
+        right_total.append( rincom+rincom_match+rcom+rcom_match )
+
+    out = pd.DataFrame( {'Annotation':anno_names,
+                         'Left Total':left_total,
+                         'Left Unmatched Incomplete': left_incom,
+                         'Left Matched Incomplete' : left_incom_match,
+                         'Left Unmatched Complete' : left_com,
+                         'Left Matched Complete' : left_com_match,
+                         'Right Total':right_total,
+                         'Right Unmatched Incomplete': right_incom,
+                         'Right Matched Incomplete' : right_incom_match,
+                         'Right Unmatched Complete' : right_com,
+                         'Right Matched Complete' : right_com_match,
+                         } )
+    return out
+        
+
+def _match_category_helper( props, max_open_ends, min_nodes ):
+    incom = sum(
+            np.logical_and( np.logical_or( props['fraction_open_ends'] >= max_open_ends,
+                                           props['node_count'] <= min_nodes ),
+                            props['is_matched'] == False )
+            )
+
+    incom_match = sum(
+            np.logical_and( np.logical_or( props['fraction_open_ends'] >= max_open_ends,
+                                           props['node_count'] <= min_nodes ),
+                            props['is_matched'] == True )
+            )
+    com = sum(
+            np.logical_and( np.logical_and( props['fraction_open_ends'] < max_open_ends,
+                                           props['node_count'] > min_nodes ),
+                            props['is_matched'] == False )
+            )
+    com_match = sum(
+            np.logical_and( np.logical_and( props['fraction_open_ends'] < max_open_ends,
+                                           props['node_count'] > min_nodes ),
+                            props['is_matched'] == True )
+            )
+    return incom, incom_match, com, com_match
+
+def get_matched_id( skid, CatmaidInterface, pair_meta, include_self=False ):
+    """
+
+    """
+    annos_with_meta = CatmaidInterface.get_annotations_from_meta_annotations( pair_meta, flatten=True )
+    annos_for_skid = CatmaidInterface.get_annotations_for_objects( [skid] )
+    pair_anno = list( set(annos_with_meta).intersection(annos_for_skid) )
+    if len(pair_anno) > 0:
+        ids_in_pair = l1data.get_ids_from_annotations(pair_anno,flatten=True)
+        if include_self:
+            return list( set( ids_in_pair ) )
+        else:
+            return list( set( ids_in_pair ).difference(set([skid])) )
+    else:
+        print('No matched neuron!')
+        return None
+
+
+def filter_complete( id_list, CatmaidInterface, max_open_ends=0.03, min_node_count = 500 ):
+    """
+
+    """
+    props = property_summary_estimated( id_list, CatmaidInterface )
+    return list( props[ (props['fraction_open_ends'] < max_open_ends)
+                & (props['node_count'] > min_node_count)
+                & ~(props['is_fragment']) ].index.values )
+
+def _paired_ids_matched( CatmaidInterface,
+                        match_report_df,
+                        pair_meta,
+                        max_open_ends=0.03,
+                        min_node_count = 500 ):
+
+    pair_list = []
+    for row in match_report_df.iterrows():
+        if isinstance( row[1]['Group_1'], np.integer ):
+            rel_ids_1 = [row[1]['Group_1']]
+        else:
+            rel_ids_1 = row[1]['Group_1']
+
+        if isinstance( row[1]['Group_2'], np.integer ):
+            rel_ids_2 = [row[1]['Group_2']]
+        else:
+            rel_ids_2 = row[1]['Group_2']
+
+        for id1 in rel_ids_1:
+            for id2 in rel_ids_2:
+                pair_list.append( [id1, id2] )
+    return pair_list
+
+def _paired_ids_unmatched_ipsilateral( CatmaidInterface,
+                        id_list_1,
+                        id_list_2,
+                        pair_meta,
+                        max_open_ends=0.03,
+                        min_node_count = 500 ):
+
+    pair_list = []
+    for ind, id1 in enumerate(id_list_1):
+        for id2 in id_list_1[ind+1:]:
+            pair_list.append([id1, id2])
+
+    for ind, id1 in enumerate(id_list_2):
+        for id2 in id_list_2[ind+1:]:
+            pair_list.append([id1, id2])
+    return pair_list
+
+def _paired_ids_unmatched_contralateral( CatmaidInterface,
+                        id_list_1_comp,
+                        id_list_2_comp,
+                        match_report_df,
+                        pair_meta,
+                        max_open_ends=0.03,
+                        min_node_count = 500 ):
+
+    pair_list = []
+    for row in match_report_df.iterrows():
+        if isinstance( row[1]['Group_1'], np.integer ):
+            match_ids_1 = [row[1]['Group_1']]
+        else:
+            match_ids_1 = row[1]['Group_1']
+        non_match_ids_1 = list( 
+                            set(id_list_1_comp).difference(set(match_ids_1))
+                            )
+
+        if isinstance( row[1]['Group_2'], np.integer ):
+            match_ids_2 = [row[1]['Group_2']]
+        else:
+            match_ids_2 = row[1]['Group_2']
+        non_match_ids_2 = list( 
+                            set(id_list_2_comp).difference(set(match_ids_2))
+                            )
+
+        for id1 in match_ids_1:
+            for id2 in non_match_ids_2:
+                pair_list.append([id1,id2])
+
+        for id2 in match_ids_2:
+            for id1 in non_match_ids_1:
+                pair_list.append([id1,id2])
+    return pair_list
+
+def make_id_pairs( CatmaidInterface,
+                   id_list_1,
+                   id_list_2,
+                   pair_meta,
+                   max_open_ends=0.03,
+                   min_node_count = 500 ):
+
+    if type(id_list_1) is str:
+        id_list_1 = CatmaidInterface.get_ids_from_annotations( id_list_1,
+                                                               flatten=True )
+    if type(id_list_2) is str:
+        id_list_2 = CatmaidInterface.get_ids_from_annotations( id_list_2,
+                                                               flatten=True )
+
+    id_list_1_comp = filter_complete( id_list_1,
+                                      CatmaidInterface,
+                                      max_open_ends=max_open_ends,
+                                      min_node_count=min_node_count)
+    id_list_2_comp = filter_complete( id_list_2,
+                                      CatmaidInterface,
+                                      max_open_ends=max_open_ends,
+                                      min_node_count=min_node_count)
+
+    match_report_df = match_report( id_list_1_comp,
+                                    id_list_2_comp,
+                                    pair_meta,
+                                    CatmaidInterface,
+                                    name1='Group_1',
+                                    name2='Group_2').drop('Unmatched')
+
+    pairs_matched = _paired_ids_matched( CatmaidInterface,
+                                        match_report_df,
+                                        pair_meta,
+                                        max_open_ends=max_open_ends,
+                                        min_node_count=min_node_count)
+
+    pairs_ipsi = _paired_ids_unmatched_ipsilateral( CatmaidInterface,
+                                        id_list_1_comp,
+                                        id_list_2_comp,
+                                        pair_meta,
+                                        max_open_ends=max_open_ends,
+                                        min_node_count=min_node_count )
+
+    pairs_contra = _paired_ids_unmatched_contralateral( CatmaidInterface,
+                                        id_list_1_comp,
+                                        id_list_2_comp,
+                                        match_report_df,
+                                        pair_meta,
+                                        max_open_ends=max_open_ends,
+                                        min_node_count=min_node_count )
+
+    return pairs_matched, pairs_ipsi, pairs_contra
+
+
+def match_groups_arbitrary( list_of_id_lists,
+                            match_via,
+                            CatmaidInterface,
+                            nrns = None,
+                            anno_reference='names' ):
+    """
+        Given N lists of neurons, create lists of groups based on a shared
+        annotation (such as cell type) within a 'match_via' metaannotation.
+
+        Parameters
+        ----------
+            id_list1 : list of list of ints
+                List of skeleton ids in groups. Could be >2.
+
+            match_via : string or int
+                Annotation (as name or id) that annotates the annotations to match.
+
+            CatmaidInterface : CatmaidDataInterface
+                Interface for the Catmaid instance to query.
+
+            nrns : NeuronListObject (default None)
+                Optional NeuronListObject which already has neuron annotations
+                listed. Must have all ids in list of id_lists to work.
+
+            anno_reference : 'names' or 'ids' (optional, default is 'names')
+
+        Returns
+        -------
+            dict
+                Match report, indexed by annotation name or id.
+    """
+    annos_with_meta = set(CatmaidInterface.get_annotations_from_meta_annotations( match_via, flatten=True ) )
+    annos_to_pair = []
+    if nrns is None:
+        for id_list in list_of_id_lists:
+            annos_to_pair.append( { nid: set(CatmaidInterface.get_annotations_for_objects( [nid] )).intersection(annos_with_meta) for nid in id_list} )
+    else:
+        for id_list in list_of_id_lists:
+            annos_to_pair.append( {nid: set( nrns[nid].annotations ).intersection(annos_with_meta) for nid in id_list} )
+
+    matches = {}
+    for group_ind, id_list in enumerate(list_of_id_lists):
+        for nid in id_list:
+            paired_annos = annos_to_pair[group_ind][nid]
+            for anno in paired_annos:
+                if anno not in matches:
+                    matches[anno] = [[] for l in list_of_id_lists]
+                matches[anno][group_ind].append( nid )
+
+    return matches
+
+def paired_connectivity_vector( nrns, pair_map, is_mirrored=False ):
+    """
+        Given a set of confirmed paired neurons, make a consistently ordered vector
+        of synaptic partners for all neurons in a neuron list. Optionally, produce
+        a swapped-order vector.
+
+        Parameters
+        ----------
+        nrns : NeuronList
+            Neuron list of cells to computer partners for
+
+        pair_map : dict
+            Mapping between cells
+
+        is_mirrored : optional Boolean, default is false
+            Boolean variable determining if the order of the output vectors are
+            pair-swapped.
+
+        Returns
+        -------
+        conn_vecs_in : dict of numpy arrays
+            Synaptic input vectors for all paired neurons
+
+        conn_vecs_out : dict of numpy arrays
+            Synaptic input vectors for all paired neurons
+    """
+    conn_sk = nrns.CatmaidInterface.get_connected_skeletons( nrns.ids() )
+    #print(conn_sk['presynaptic'])
+    conn_vecs_in = dict()
+    conn_vecs_out = dict()
+    pair_ids = list( pair_map['skid_to_ind'].keys() )
+    
+    for skid in conn_sk['presynaptic']:
+        vec_in = np.zeros((len(pair_ids)))
+        rel_partner_ids = set(pair_ids).intersection( set(conn_sk['presynaptic'][skid] ) )
+        for pid in rel_partner_ids:
+            vec_in[ pair_map['skid_to_ind'][pid] ] = conn_sk['presynaptic'][skid][pid]
+        if is_mirrored:
+            conn_vecs_in[skid] = vec_in[pair_map['mirror_inds']]
+        else:
+            conn_vecs_in[skid] = vec_in
+
+    for skid in conn_sk['postsynaptic']:
+        vec_out = np.zeros((len(pair_ids)))
+        rel_partner_ids = set(pair_ids).intersection( set(conn_sk['postsynaptic'][skid] ) )
+        for pid in rel_partner_ids:
+            vec_out[ pair_map['skid_to_ind'][pid] ] = conn_sk['postsynaptic'][skid][pid]
+        if is_mirrored:
+            conn_vecs_out[skid] = vec_out[pair_map['mirror_inds']]
+        else:
+            conn_vecs_out[skid] = vec_out
+
+    return conn_vecs_in, conn_vecs_out
+
+
+def paired_connectivity_prob( nrns_q,
+                              nrns_t,
+                              pair_map,
+                              conn_stats,
+                              is_mirrored = True):
+    """
+    Given two neuronlists, a pair map, and trained connectivity statistics, get a
+    dataframe of the likelihood ratio of matched to unmatched for every pairwise
+    comparison.
+
+    Parameters
+    ----------
+        nrns_q : NeuronList
+            Query neurons
+
+        nrns_t : NeuronList
+            Target neurons, potentially mirrored
+
+        pair_ma; : dict
+            Mapping between neuron cell-type pairs
+
+        is_mirrored : Boolean (optional, default True)
+            Boolean variable determining if the target vectors are in 
+            pair-swapped order.
+
+    Returns
+    -------
+        DataFrame
+            Dataframe with columns Queries, Targets, prob_pre, and prob_post.
+
+    """
+    pv_q_in, pv_q_out = paired_connectivity_vector( nrns_q,
+                                                    pair_map=pair_map )
+    pv_t_in, pv_t_out = paired_connectivity_vector( nrns_t,
+                                                    pair_map=pair_map,
+                                                    is_mirrored=is_mirrored )
+    
+    Qids = []
+    Tids = []
+    pre_prob = []
+    post_prob = []
+    for qid in nrns_q.ids():
+        for tid in nrns_t.ids():
+            Qids.append( pynblast.name_number( nrns_q[qid] ) )
+            Tids.append(pynblast.name_number( nrns_t[tid] ) )
+            pre_prob.append( np.product( match_prob_conn_ratio(pv_q_in[qid],
+                                         pv_t_in[tid],
+                                         conn_stats ) ) )
+            post_prob.append( np.product( match_prob_conn_ratio(pv_q_out[qid],
+                                         pv_t_out[tid],
+                                         conn_stats ) ) )
+    return pd.DataFrame({'Queries':Qids,
+                         'Targets':Tids,
+                         'pre_prob':pre_prob,
+                         'post_prob':post_prob})

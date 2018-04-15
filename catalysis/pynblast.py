@@ -10,14 +10,30 @@ from multiprocessing import Pool
 from functools import partial
 import catalysis.transform as transform
 
-def nblast_neuron_pair( nrn_q, nrn_t, score_lookup, resample_distance = 1000, num_nn = 5, normalize=False ):
+def nblast_neuron_pair( nrn_q,
+                        nrn_t,
+                        score_lookup,
+                        resample_distance = 1000,
+                        num_nn = 5,
+                        bidirectional = False,
+                        normalize = False ):
     """
         Find the NBLAST score for two neurons, given a score matrix object
     """
     d_and_udotv = neuron_comparison_nblast_components( nrn_q, nrn_t, resample_distance=resample_distance, num_nn = num_nn )
-    S = nblast_dist_fun( d_and_udotv, score_lookup )
-    if normalize:
-        S = S / max_blast_score( len(nrn_q.nodeloc), score_lookup )
+    S_a = nblast_dist_fun( d_and_udotv, score_lookup )
+    if bidirectional:
+        d_and_udotv_b = neuron_comparison_nblast_components( nrn_t, nrn_q, resample_distance=resample_distance, num_nn = num_nn )
+        S_b = nblast_dist_fun( d_and_udotv, score_lookup )
+        S_a = S_a / max_blast_score( len(d_and_udotv), score_lookup )
+        S_b = S_b / max_blast_score( len(d_and_udotv), score_lookup )
+        S_a = max(S_a, 0)
+        S_b = max(S_b, 0)
+        S = np.sqrt( S_a * S_b )
+    elif normalize:
+        S = S_a / max_blast_score( len(d_and_udotv), score_lookup )
+    else:
+        S = S_a
     return S
 
 def max_blast_score( L, score_lookup ):
@@ -45,7 +61,7 @@ def _nblast_neuron_pair_for_mp( input ):
         S = nblast_dist_fun( d_and_udotv, score_lookup )
         
         if normalize:
-            S = S / max_blast_score( len(nrn_t_dotprop), score_lookup )
+            S = S / max_blast_score( len(d_and_udotv), score_lookup )
     else:
         S = 0
     return S
@@ -138,10 +154,7 @@ def neuron_comparison_nblast_components( source_nrn, target_nrn, resample_distan
     udotv = []
     dist_tree = sp.spatial.KDTree( target_dp[:,0:3] )
     ds = dist_tree.query( source_dp[:,0:3], 1 )
-    # for node in source_dp:
-    #     targ_node_info = dist_tree.query( node[0:2], 1 )
-    #     d.append( targ_node_info[0] )
-    #     udotv.append( np.abs( np.dot(node[3:6], target_dp[targ_node_info[1]][3:6]) ) )
+
     d_and_udotv = np.zeros( (len(ds[0]),2) )
     d_and_udotv[:,0] = ds[0]
     d_and_udotv[:,1] = np.einsum('ij,ij->i', source_dp[:,3:], target_dp[ds[1],3:])
@@ -154,6 +167,14 @@ def nblast_dist_fun( d_and_udotv, score_lookup ):
     for row in d_and_udotv:
         S += score_lookup.score( d=row[0], udotv=row[1] )
     return S
+
+def nblast_dist_fun_local( d_and_udotv, score_lookup ):
+    Sloc = []
+    if np.shape(d_and_udotv)[1] != 2:
+        raise ValueError( "Scores must only have two components")
+    for row in d_and_udotv:
+        Sloc.append( score_lookup.score( d=row[0], udotv=row[1] ) )
+    return np.array( Sloc )
 
 class ScoreMatrixLookup:
     def __init__( self, mat, d_range, udotv_range):
@@ -223,6 +244,28 @@ def nblast_neurons(score_lookup, nrns_q, nrns_t=None, resample_distance=1000, nu
     df = pd.DataFrame({'Queries':queries, 'Targets':targets, 'S':similarities}).reindex(columns=['Queries','Targets','S'])
     return df
 
+def soma_distance( nrns_q, nrns_t=None ):
+
+    if type(nrns_q) is 'NeuronObj':
+        nrns_q = [nrns_q]
+
+    if nrns_t is None:
+        nrns_t = nrns_q
+
+    queries = []
+    targets = []
+    soma_distances = []
+    for nrn_q in nrns_q:
+        q_name = name_number( nrn_q )
+        xyz_q = nrn_q.soma_location()
+        for nrn_t in nrns_t:
+            t_name = name_number( nrn_t )
+            xyz_t = nrn_t.soma_location()
+            queries.append(q_name)
+            targets.append(t_name)
+            soma_distances.append(np.linalg.norm(xyz_q-xyz_t))
+    df = pd.DataFrame({'Queries':queries, 'Targets':targets, 'soma_distance':soma_distances}).reindex(columns=['Queries','Targets','soma_distance'])
+    return df
 
 def exact_nblast(score_lookup,
                 nrns_q,
@@ -230,12 +273,18 @@ def exact_nblast(score_lookup,
                 resample_distance=1000,
                 num_nn=5,
                 min_strahler=None,
+                min_length=None,
                 processes=4 ):
     """
         Compute a symmetric normalized version of NBLAST to test for "exact
         matches", as the geometric mean of query to target and target to query.
         NBLAST values below 0 (even more dissimilar than random) are filled to 0.
     """
+
+    if min_length is not None:
+        nrns_q = cat.filter_neurons_by_length( nrns_q, min_length )
+        nrns_t = cat.filter_neurons_by_length( nrns_t, min_length )
+
     Sqt = nblast_neurons(
                         score_lookup,
                         nrns_q,
@@ -262,6 +311,7 @@ def exact_nblast(score_lookup,
                                   values='S' )
     Stq[Stq<0]=0
     Sqt[Sqt<0]=0
+
     return Sqt.multiply( Stq ).apply( np.sqrt ).fillna( 0 )
 
 def match_report( nrns_q, Sb, min_similarity = 0.4 ):
@@ -357,6 +407,7 @@ def compare_partners( score_lookup,
                       resample_distance=1000,
                       num_nn=5,
                       min_strahler=None,
+                      min_length=None,
                       ntop_q=2,
                       kmin_f=0.5,
                       kmin_t=3,
@@ -425,7 +476,8 @@ def compare_partners( score_lookup,
                        partner_nrns_t_transformed,
                        resample_distance=resample_distance,
                        num_nn=num_nn,
-                       min_strahler=min_strahler )
+                       min_strahler=min_strahler,
+                       min_length=min_length )
     matching = max_match_similarity( Sb )
 
     # Add synapses 

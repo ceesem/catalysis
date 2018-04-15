@@ -378,7 +378,8 @@ class NeuronList:
         ids = self.ids()
         skid_to_ind = { skid:ii for ii, skid in enumerate(self.neurons) }
         ind_to_skid = { ii:skid for ii, skid in enumerate(self.neurons) }
-        for nrn in self.neurons:
+        for skid in self.neurons:
+            nrn = self.neurons[skid]
             for conn_id in nrn.outputs.target_ids:
                 for targ in nrn.outputs.target_ids[conn_id]:
                     if targ in ids:
@@ -731,6 +732,19 @@ class NeuronObj:
         """
         return self.A.sum()
 
+    def soma_location( self ):
+        """
+            Returns the soma location as a numpy array if present, otherwise NaN.
+        """
+
+        if 'soma' in self.tags.keys():
+            if len(self.tags['soma']) > 1:
+                print('Warning! ' + self.name + ' has multiple soma tags!')
+            soma_loc = self.nodeloc[self.tags['soma'][0]]
+        else:
+            soma_loc = np.nan * np.array([0,0,0])
+        return soma_loc
+
     def node_count(self):
         """
             Returns the number of nodes in the skeleton
@@ -892,6 +906,11 @@ class NeuronObj:
         
         return np.vstack( (ids[syns>=min_synapses], syns[syns>=min_synapses]) ).T
 
+
+def filter_neurons_by_length( nrns, min_length ):
+    keep_ids = [nrn.id for nrn in nrns if nrn.cable_length() > min_length]
+    return nrns.slice_by_id( keep_ids )
+
 def synaptic_partner_tables( neurons,
                        include_presynaptic=True,
                        include_postsynaptic=True,
@@ -947,3 +966,4 @@ def synaptic_partner_tables( neurons,
         output_df = pd.DataFrame( columns=series_names)
 
     return input_df, output_df
+
