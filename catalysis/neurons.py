@@ -166,7 +166,7 @@ class NeuronList:
 
 
     @classmethod
-    def from_annotations( cls, annotation_list, CatmaidInterface, with_tags = True, with_annotations = True, project_name = None, max_neurons_per_post=100):
+    def from_annotations( cls, annotation_list, CatmaidInterface, skip_annotations=None, with_tags = True, with_annotations = True, project_name = None, max_neurons_per_post=100):
         """
             Initialize a NeuronList object from a list of annotations.
 
@@ -186,6 +186,10 @@ class NeuronList:
         """
         id_list = CatmaidInterface.get_ids_from_annotations( annotation_list,
                                                              flatten=True )
+        if skip_annotations is not None:
+            id_to_skip = CatmaidInterface.get_ids_from_annotations( skip_annotations, flatten = True )
+            id_list = list( set(id_list).difference( set(id_to_skip) ) )
+
         return cls.from_id_list(id_list,
                                 CatmaidInterface,
                                 with_tags=with_tags,
@@ -739,7 +743,7 @@ class NeuronObj:
 
         if 'soma' in self.tags.keys():
             if len(self.tags['soma']) > 1:
-                print('Warning! ' + self.name + ' has multiple soma tags!')
+                print('Warning! ' + self.name + ', id:' + str(self.id) + ' has multiple soma tags!')
             soma_loc = self.nodeloc[self.tags['soma'][0]]
         else:
             soma_loc = np.nan * np.array([0,0,0])

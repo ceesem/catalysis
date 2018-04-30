@@ -1,5 +1,6 @@
 import catalysis.catmaid_interface as ci
 import catalysis.neurons as na
+import catalysis.pynblast as pynblast
 
 from collections import defaultdict
 import pandas as pd
@@ -159,7 +160,7 @@ def property_summary_estimated( ids, CatmaidInterface ):
     for id in ids:
         noe = len( CatmaidInterface.get_open_ends( id ) )
         nce = len( CatmaidInterface.get_closed_ends( id ) )
-        sn = CatmaidInterface.tag_query_for_skeleton( id, '^soma$|^to nerve$')
+        sn = CatmaidInterface.tag_query_for_skeleton( id, '^soma$|^out to nerve$')
         rn = CatmaidInterface.root_for_skeleton( id )['root_id']
         fraction_open_ends.append( (noe+0.0)/(noe+nce+0.0) )
         num_open_ends.append( noe )
@@ -541,7 +542,7 @@ def match_groups( id_list1, id_list2, match_via, CatmaidInterface, anno_referenc
 
     return matches
 
-def match_report( id_list1, id_list2, match_via, CatmaidInterface, name1='Group 1', name2='Group 2', anno_reference = 'names' ):
+def match_report( id_list1, id_list2, match_via, CatmaidInterface, name1='Group 1', name2='Group 2', anno_reference = 'names', skip_annos=None, show_completeness=True ):
     """
             Given two lists of neurons, match their elements if they share an annotation (such as cell type) indicated by a specific metaannotation.
 
@@ -567,12 +568,20 @@ def match_report( id_list1, id_list2, match_via, CatmaidInterface, name1='Group 
 
                 anno_reference : 'names' or 'ids' (optional, default is 'names')
 
+                skip_annos : list of strings (optional, Default is None)
+                    List of annotations of neurons to not include in the final report.
+
             Returns
             -------
                 DataFrame
                     Organized, readable match report
 
     """
+    if skip_annos is not None:
+        ids_to_skip = CatmaidInterface.get_ids_from_annotations(skip_annos, flatten=True)
+        id_list1 = list( set(id_list1).difference(set(ids_to_skip)))
+        id_list2 = list( set(id_list2).difference(set(ids_to_skip)))
+
     annos = CatmaidInterface.get_annotations()
     rev_dict = { annos[key] : key for key in annos }
 
@@ -596,13 +605,30 @@ def match_report( id_list1, id_list2, match_via, CatmaidInterface, name1='Group 
     match_report1['Unmatched'] = list(unmatched1)
     match_report2['Unmatched'] = list(unmatched2)
 
-    # print( str( len(set(matched[0])) ) + ' of ' + str(len(id_list1)) + ' of ' + name1 + ' matched...')
-    # print( str( len(set(matched[1])) ) + ' of ' + str(len(id_list2)) + ' of ' + name2 +  ' matched...')
+    if show_completeness:
+        ps = property_summary_estimated(id_list1+id_list2, CatmaidInterface )
+        match_completed1 = _match_completed(ps, match_report1 )
+        match_completed2 = _match_completed(ps, match_report2 )
 
-    report = pd.DataFrame( { name1: match_report1, name2: match_report2} )
+    report = pd.DataFrame( { name1: match_report1, name2: match_report2, name1+'_complete':match_completed1, name2+'_complete':match_completed2} )
     return report
 
-def match_report_from_annos( anno1, anno2, match_via, CatmaidInterface, anno_reference = 'names'):
+def _match_completed( ps, match_report, min_open_ends=0.05,  ):
+    match_completed = dict()
+    for lin in match_report:
+        if isinstance( match_report[lin], np.integer ):
+            relids = [match_report[lin]]
+        else:
+            relids = match_report[lin]
+        match_completed[lin] = []
+        for skid in relids:
+            if ps[ps.index==skid]['is_fragment'].bool() is False and (ps[ps.index==skid]['fraction_open_ends'] < min_open_ends).bool():
+                match_completed[lin].append(True)
+            else:
+                match_completed[lin].append(False)
+    return match_completed
+
+def match_report_from_annos( anno1, anno2, match_via, CatmaidInterface, anno_reference = 'names', skip_annos = None, show_completeness=False):
     """
         Given two lists of neurons, match their elements if they share
         an annotation (such as cell type) indicated by a specific
@@ -637,8 +663,10 @@ def match_report_from_annos( anno1, anno2, match_via, CatmaidInterface, anno_ref
                          CatmaidInterface.get_ids_from_annotations(anno2,flatten=True),
                          match_via,
                          CatmaidInterface,
+                         skip_annos=skip_annos,
                          name1 = anno1,
-                         name2 = anno2)
+                         name2 = anno2,
+                         show_completeness=show_completeness)
 
 def report_from_annotation_list( anno_list, CatmaidInterface ):
     """
@@ -847,7 +875,7 @@ def get_matched_id( skid, CatmaidInterface, pair_meta, include_self=False ):
     annos_for_skid = CatmaidInterface.get_annotations_for_objects( [skid] )
     pair_anno = list( set(annos_with_meta).intersection(annos_for_skid) )
     if len(pair_anno) > 0:
-        ids_in_pair = l1data.get_ids_from_annotations(pair_anno,flatten=True)
+        ids_in_pair = CatmaidInterface.get_ids_from_annotations(pair_anno,flatten=True)
         if include_self:
             return list( set( ids_in_pair ) )
         else:
@@ -857,14 +885,17 @@ def get_matched_id( skid, CatmaidInterface, pair_meta, include_self=False ):
         return None
 
 
-def filter_complete( id_list, CatmaidInterface, max_open_ends=0.03, min_node_count = 500 ):
+def filter_complete( id_list, CatmaidInterface, max_open_ends=0.03, min_node_count = 500, sensory_exception=False ):
     """
 
     """
     props = property_summary_estimated( id_list, CatmaidInterface )
-    return list( props[ (props['fraction_open_ends'] < max_open_ends)
-                & (props['node_count'] > min_node_count)
-                & ~(props['is_fragment']) ].index.values )
+    if sensory_exception:
+        filt = (props['fraction_open_ends'] < max_open_ends) & (props['node_count'] > min_node_count)
+    else:
+        filt = (props['fraction_open_ends'] < max_open_ends) & (props['node_count'] > min_node_count) & ~(props['is_fragment'])
+
+    return list( props[ filt ].index.values )
 
 def _paired_ids_matched( CatmaidInterface,
                         match_report_df,
@@ -946,7 +977,8 @@ def make_id_pairs( CatmaidInterface,
                    id_list_2,
                    pair_meta,
                    max_open_ends=0.03,
-                   min_node_count = 500 ):
+                   min_node_count = 500,
+                   sensory_exception = False ):
 
     if type(id_list_1) is str:
         id_list_1 = CatmaidInterface.get_ids_from_annotations( id_list_1,
@@ -958,11 +990,13 @@ def make_id_pairs( CatmaidInterface,
     id_list_1_comp = filter_complete( id_list_1,
                                       CatmaidInterface,
                                       max_open_ends=max_open_ends,
-                                      min_node_count=min_node_count)
+                                      min_node_count=min_node_count,
+                                      sensory_exception=sensory_exception)
     id_list_2_comp = filter_complete( id_list_2,
                                       CatmaidInterface,
                                       max_open_ends=max_open_ends,
-                                      min_node_count=min_node_count)
+                                      min_node_count=min_node_count,
+                                      sensory_exception=sensory_exception)
 
     match_report_df = match_report( id_list_1_comp,
                                     id_list_2_comp,
@@ -1046,113 +1080,3 @@ def match_groups_arbitrary( list_of_id_lists,
 
     return matches
 
-def paired_connectivity_vector( nrns, pair_map, is_mirrored=False ):
-    """
-        Given a set of confirmed paired neurons, make a consistently ordered vector
-        of synaptic partners for all neurons in a neuron list. Optionally, produce
-        a swapped-order vector.
-
-        Parameters
-        ----------
-        nrns : NeuronList
-            Neuron list of cells to computer partners for
-
-        pair_map : dict
-            Mapping between cells
-
-        is_mirrored : optional Boolean, default is false
-            Boolean variable determining if the order of the output vectors are
-            pair-swapped.
-
-        Returns
-        -------
-        conn_vecs_in : dict of numpy arrays
-            Synaptic input vectors for all paired neurons
-
-        conn_vecs_out : dict of numpy arrays
-            Synaptic input vectors for all paired neurons
-    """
-    conn_sk = nrns.CatmaidInterface.get_connected_skeletons( nrns.ids() )
-    #print(conn_sk['presynaptic'])
-    conn_vecs_in = dict()
-    conn_vecs_out = dict()
-    pair_ids = list( pair_map['skid_to_ind'].keys() )
-    
-    for skid in conn_sk['presynaptic']:
-        vec_in = np.zeros((len(pair_ids)))
-        rel_partner_ids = set(pair_ids).intersection( set(conn_sk['presynaptic'][skid] ) )
-        for pid in rel_partner_ids:
-            vec_in[ pair_map['skid_to_ind'][pid] ] = conn_sk['presynaptic'][skid][pid]
-        if is_mirrored:
-            conn_vecs_in[skid] = vec_in[pair_map['mirror_inds']]
-        else:
-            conn_vecs_in[skid] = vec_in
-
-    for skid in conn_sk['postsynaptic']:
-        vec_out = np.zeros((len(pair_ids)))
-        rel_partner_ids = set(pair_ids).intersection( set(conn_sk['postsynaptic'][skid] ) )
-        for pid in rel_partner_ids:
-            vec_out[ pair_map['skid_to_ind'][pid] ] = conn_sk['postsynaptic'][skid][pid]
-        if is_mirrored:
-            conn_vecs_out[skid] = vec_out[pair_map['mirror_inds']]
-        else:
-            conn_vecs_out[skid] = vec_out
-
-    return conn_vecs_in, conn_vecs_out
-
-
-def paired_connectivity_prob( nrns_q,
-                              nrns_t,
-                              pair_map,
-                              conn_stats,
-                              is_mirrored = True):
-    """
-    Given two neuronlists, a pair map, and trained connectivity statistics, get a
-    dataframe of the likelihood ratio of matched to unmatched for every pairwise
-    comparison.
-
-    Parameters
-    ----------
-        nrns_q : NeuronList
-            Query neurons
-
-        nrns_t : NeuronList
-            Target neurons, potentially mirrored
-
-        pair_ma; : dict
-            Mapping between neuron cell-type pairs
-
-        is_mirrored : Boolean (optional, default True)
-            Boolean variable determining if the target vectors are in 
-            pair-swapped order.
-
-    Returns
-    -------
-        DataFrame
-            Dataframe with columns Queries, Targets, prob_pre, and prob_post.
-
-    """
-    pv_q_in, pv_q_out = paired_connectivity_vector( nrns_q,
-                                                    pair_map=pair_map )
-    pv_t_in, pv_t_out = paired_connectivity_vector( nrns_t,
-                                                    pair_map=pair_map,
-                                                    is_mirrored=is_mirrored )
-    
-    Qids = []
-    Tids = []
-    pre_prob = []
-    post_prob = []
-    for qid in nrns_q.ids():
-        for tid in nrns_t.ids():
-            Qids.append( pynblast.name_number( nrns_q[qid] ) )
-            Tids.append(pynblast.name_number( nrns_t[tid] ) )
-            pre_prob.append( np.product( match_prob_conn_ratio(pv_q_in[qid],
-                                         pv_t_in[tid],
-                                         conn_stats ) ) )
-            post_prob.append( np.product( match_prob_conn_ratio(pv_q_out[qid],
-                                         pv_t_out[tid],
-                                         conn_stats ) ) )
-    return pd.DataFrame({'Queries':Qids,
-                         'Targets':Tids,
-                         'pre_prob':pre_prob,
-                         'post_prob':post_prob})

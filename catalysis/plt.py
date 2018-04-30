@@ -172,6 +172,8 @@ def path_data( xyz, color = (20,20,20), line=None, width=2 ):
 
 def scatter_block( xyz, marker=None, color = None ):
     """
+        Given an Nx3 array of points, scatterplot them.
+        
 
     """
 

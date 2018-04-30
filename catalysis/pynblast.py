@@ -9,6 +9,8 @@ from bisect import bisect
 from multiprocessing import Pool
 from functools import partial
 import catalysis.transform as transform
+import sys
+epsilon = sys.float_info.epsilon
 
 def nblast_neuron_pair( nrn_q,
                         nrn_t,
@@ -478,6 +480,375 @@ def compare_partners( score_lookup,
                        num_nn=num_nn,
                        min_strahler=min_strahler,
                        min_length=min_length )
+    matching = max_match_similarity( Sb )
+
+    # Add synapses 
+    q_syn = []
+    for nid in matching['Query_id']:
+        q_syn.append(partner_ids_all_q[partner_ids_all_q[:,0]==nid,1][0])
+    t_syn = []
+    for nid in matching['Target_id']:
+        t_syn.append(partner_ids_all_t[partner_ids_all_t[:,0]==nid,1][0])
+    syn_df = pd.DataFrame({'Query_synapses': q_syn, 'Target_synapses': t_syn})
+    matching = matching.join(syn_df)
+    matching = matching.reindex(['S',
+                      'Query_name',
+                      'Query_id',
+                      'Target_name',
+                      'Target_id',
+                      'Query_synapses',
+                      'Target_synapses'], axis = 1)
+    
+    out = {}
+    out['matching'] = matching
+    if return_full_similarity:
+        out['similarity'] = Sb
+    
+    if return_neurons:
+        out['partners_q'] = partner_nrns_q.slice_by_id(matching['Query_id'])
+        out['partners_t'] = partner_nrns_t_transformed.slice_by_id(matching['Target_id'])
+
+    return out
+
+def paired_connectivity_vector( nrns, pair_map, is_mirrored=False, normalize_weights=False ):
+    """
+        Given a set of confirmed paired neurons, make a consistently ordered vector
+        of synaptic partners for all neurons in a neuron list. Optionally, produce
+        a swapped-order vector.
+
+        Parameters
+        ----------
+        nrns : NeuronList
+            Neuron list of cells to computer partners for
+
+        pair_map : dict
+            Mapping between cells
+
+        is_mirrored : optional Boolean, default is False
+            Boolean variable determining if the order of the output vectors are
+            pair-swapped.
+
+        normalized : optional Boolean, default is False
+            Determines if synapses are reported as total number (default) or as
+            a fraction of total inputs (if True).
+
+        Returns
+        -------
+        conn_vecs_in : dict of numpy arrays
+            Synaptic input vectors for all paired neurons
+
+        conn_vecs_out : dict of numpy arrays
+            Synaptic input vectors for all paired neurons
+    """
+    conn_sk = nrns.CatmaidInterface.get_connected_skeletons( nrns.ids() )
+    #print(conn_sk['presynaptic'])
+    conn_vecs_in = dict()
+    conn_vecs_out = dict()
+    pair_ids = list( pair_map['skid_to_ind'].keys() )
+
+    for skid in conn_sk['presynaptic']:
+        vec_in = np.zeros((len(pair_ids)))
+        rel_partner_ids = set(pair_ids).intersection( set(conn_sk['presynaptic'][skid] ) )
+        for pid in rel_partner_ids:
+            vec_in[ pair_map['skid_to_ind'][pid] ] = conn_sk['presynaptic'][skid][pid]
+        if is_mirrored:
+            conn_vecs_in[skid] = vec_in[pair_map['mirror_inds']]
+        else:
+            conn_vecs_in[skid] = vec_in
+
+    # if normalize_weights:
+    #     # Update conn_vecs_in for inputs
+    #     num_inputs = {nrn.id:nrn.inputs.num() for nrn in nrns}
+    #     for skid in conn_vecs_in:
+    #         if num_inputs[skid] > 0 :
+    #             conn_vecs_in[skid] = conn_vecs_in[skid] / (num_inputs[skid] +0.0)
+    #     # Compute needed postsynaptic info for conn_out_post
+    #     num_inputs_post_dict = nrns.CatmaidInterface.total_inputs(pair_ids)
+    #     for pid in num_inputs_post_dict:
+    #         if num_inputs_post_dict[pid] == 0:
+    #             num_inputs_post_dict[pid] = np.inf
+
+    for skid in conn_sk['postsynaptic']:
+        vec_out = np.zeros((len(pair_ids)))
+        rel_partner_ids = set(pair_ids).intersection( set(conn_sk['postsynaptic'][skid] ) )
+        for pid in rel_partner_ids:
+            if normalize_weights:
+                print( conn_sk['postsynaptic'][skid][pid], num_inputs_post_dict[pid], conn_sk['postsynaptic'][skid][pid] / (num_inputs_post_dict[pid]+0.0))
+                vec_out[ pair_map['skid_to_ind'][pid] ] = conn_sk['postsynaptic'][skid][pid] / (num_inputs_post_dict[pid]+0.0)
+            else:
+                vec_out[ pair_map['skid_to_ind'][pid] ] = conn_sk['postsynaptic'][skid][pid]
+        if is_mirrored:
+            conn_vecs_out[skid] = vec_out[pair_map['mirror_inds']]
+        else:
+            conn_vecs_out[skid] = vec_out
+
+    return conn_vecs_in, conn_vecs_out
+
+
+def paired_connectivity_prob( nrns_q,
+                              nrns_t,
+                              pair_map,
+                              conn_stats,
+                              is_mirrored = True):
+    """
+    Given two neuronlists, a pair map, and trained connectivity statistics, get a
+    dataframe of the likelihood ratio of matched to unmatched for every pairwise
+    comparison.
+
+    Parameters
+    ----------
+        nrns_q : NeuronList
+            Query neurons
+
+        nrns_t : NeuronList
+            Target neurons, potentially mirrored
+
+        pair_ma; : dict
+            Mapping between neuron cell-type pairs
+
+        is_mirrored : Boolean (optional, default True)
+            Boolean variable determining if the target vectors are in 
+            pair-swapped order.
+
+    Returns
+    -------
+        DataFrame
+            Dataframe with columns Queries, Targets, prob_pre, and prob_post.
+
+    """
+    pv_q_in, pv_q_out = paired_connectivity_vector( nrns_q,
+                                                    pair_map=pair_map,
+                                                    normalize_weights=False)
+    pv_t_in, pv_t_out = paired_connectivity_vector( nrns_t,
+                                                    pair_map=pair_map,
+                                                    is_mirrored=is_mirrored,
+                                                    normalize_weights=False)
+    
+    Qids = []
+    Tids = []
+    pre_prob = []
+    post_prob = []
+    for qid in nrns_q.ids():
+        for tid in nrns_t.ids():
+            Qids.append( name_number( nrns_q[qid] ) )
+            Tids.append( name_number( nrns_t[tid] ) )
+
+            # if normalize_weights:
+            #     pre_prob.append( np.sum( match_prob_conn_normalized_log_ratio(pv_q_in[qid],
+            #                                  pv_t_in[tid],
+            #                                  conn_stats ) ) )
+            #     post_prob.append( np.sum( match_prob_conn_normalized_log_ratio(pv_q_out[qid],
+            #                                  pv_t_out[tid],
+            #                                  conn_stats ) ) )
+            # else:
+            pre_prob.append( np.sum( match_prob_conn_log_ratio(pv_q_in[qid].astype(int),
+                                         pv_t_in[tid].astype(int),
+                                         conn_stats ) ) )
+            post_prob.append( np.sum( match_prob_conn_log_ratio(pv_q_out[qid].astype(int),
+                                         pv_t_out[tid].astype(int),
+                                         conn_stats ) ) )
+    return pd.DataFrame({'Queries':Qids,
+                         'Targets':Tids,
+                         'pre_prob':pre_prob,
+                         'post_prob':post_prob})
+
+
+def match_likelihood_ratio( nrns_q,
+                            nrns_t,
+                            pair_map,
+                            conn_stats,
+                            morpho_stats,
+                            nblast_score_mat,
+                            min_length = None,
+                            resample_distance=1000,
+                            is_mirrored=True ):
+
+    if min_length is not None:
+        nrns_q = cat.filter_neurons_by_length( nrns_q, min_length )
+        nrns_t = cat.filter_neurons_by_length( nrns_t, min_length )
+
+    # Compute nblast in each direction, soma location, and connectivity partners
+    Ds = soma_distance(nrns_t=nrns_t, nrns_q=nrns_q)
+
+    Sqt = nblast_neurons(nblast_score_mat,
+                                  nrns_q=nrns_q,
+                                  nrns_t=nrns_t,
+                                  resample_distance=resample_distance,
+                                  normalize=True)
+    Stq = nblast_neurons(nblast_score_mat,
+                                  nrns_q=nrns_t,
+                                  nrns_t=nrns_q,
+                                  resample_distance=resample_distance,
+                                  normalize=True)
+    Sqt.S[Sqt.S<0] = 0
+    Stq.S[Stq.S<0] = 0
+
+    P_con = paired_connectivity_prob( nrns_q,
+                                      nrns_t,
+                                      pair_map,
+                                      conn_stats,
+                                      is_mirrored=is_mirrored )
+
+    # Put all the computations together into one dataframe.
+    Stot = pd.merge(Sqt.rename(index=str,columns={'S':'Sqt'}),
+                    Stq.rename(index=str, columns={'Queries':'Targets',
+                                                   'Targets':'Queries',
+                                                   'S':'Stq'} ),
+                    on=['Queries','Targets'])
+    Stot['Sbid'] = Stot.Sqt.multiply(Stot.Stq).apply(np.sqrt).fillna(0)
+
+    Stot = pd.merge(Stot,Ds,on=['Queries','Targets'])
+    Stot = pd.merge(Stot,P_con,on=['Queries','Targets'])
+
+    Stot['P_morph_log_ratio'] = match_prob_morpho_log_ratio( Stot.Sbid,
+                                                  Stot.soma_distance,
+                                                  morpho_stats )
+
+    Stot['logP'] = Stot['P_morph_log_ratio'] + Stot['post_prob'] + Stot['pre_prob']
+    return Stot
+
+# @np.vectorize
+# def match_prob_morpho_log_ratio(S, d, morpho_stats ):
+#     dat = [d,S]
+#     return np.log2(morpho_stats['match'](dat)) - np.log2(morpho_stats['not_match'](dat)+epsilon)
+
+def match_prob_morpho_log_ratio( S, d, morpho_stats ):
+    Sprob = _logistic_ratio( S, morpho_stats['shape'])
+    dprob = _gamma_ratio(d,
+                         morpho_stats['dist_match'],
+                         morpho_stats['dist_nonmatch'],
+                         morpho_stats['exp_cutoff'] )
+    dprob[ np.isnan(dprob) ] = 1.0
+    return Sprob + dprob
+
+def _gamma_ratio( xs, match_param, nonmatch_param, exp_param ):
+    """
+        Odds ratio of match based on soma distance. Match and
+        non-match distances are well-fit (emprically) by a gamma distribution,
+        but with a crossover to lower-likelihood for very close soma that is
+        modeled here as an exponential.
+    """
+    num = sp.stats.gamma.pdf( xs, *match_param )
+    denom = sp.stats.gamma.pdf( xs, *nonmatch_param)
+    val = num / (num+denom) * ( 1-exp_param[0] * np.exp(-xs/exp_param[1]))
+    return np.log2(val) - np.log2(1.0-val)
+
+def _logistic_ratio( x, shape_param ):
+    """
+        Based on a logistic function odds of match from fits of nblast similarity
+    """
+    val = shape_param[0] / ( 1 + np.exp( -1 * shape_param[1] * (x - shape_param[2]) ) )
+    return np.log2(val)-np.log2(1.0-val)
+
+@np.vectorize
+def match_prob_conn_log_ratio(w1, w2, conn_stats):
+    if w1>np.shape(conn_stats['log_ratio'])[0]-1 or w2>np.shape(conn_stats['log_ratio'])[1]-1:
+        shift1 = w1 - np.shape(conn_stats['log_ratio'])[0]-1
+        shift2 = w2 - np.shape(conn_stats['log_ratio'])[1]-1
+        w1 = w1 - np.max( shift1, shift2 )
+        w2 = w2 - np.max( shift1, shift2 )
+    if w1>0 or w2>0:
+        return conn_stats['log_ratio'][w1,w2]
+    else:
+        return 0.0
+
+@np.vectorize
+def match_prob_conn_normalized_log_ratio(w1, w2, conn_stats):
+    if w1>0 or w2>0:
+        wmean = (w1+w2)/2
+        var_param_ind = int(np.where( (wmean<conn_stats['percentiles'][1:]) & (wmean>=conn_stats['percentiles'][:-1]) )[0])
+        p_match = sp.stats.lognorm.pdf(wmean,*conn_stats['freq_param']) * sp.stats.gamma.pdf(np.abs(w1-w2),*conn_stats['var_param'][var_param_ind])
+        p_nonmatch =sp.stats.lognorm.pdf(w1,*conn_stats['freq_param']) * sp.stats.lognorm.pdf(w2,*conn_stats['freq_param'])
+        return np.log2(p_match) - np.log2(p_nonmatch)
+    else:
+        return 0.0
+
+def compare_partners_prob( nrn_q,
+                      nrn_t,
+                      connection_type,
+                      CatmaidInterface,
+                      from_group,
+                      to_group,
+                      score_lookup,
+                      pair_map,
+                      morpho_stats,
+                      conn_stats,
+                      min_length=None,
+                      resample_distance=1000,
+                      num_nn=5,
+                      min_strahler=None,
+                      ntop_q=2,
+                      kmin_f=0.5,
+                      kmin_t=3,
+                      normalized=False,
+                      return_full_similarity=False,
+                      return_neurons=False,
+                      contralateral=True  ):
+    """
+        Finds a maximum max of NBLAST scores for partners of a queried neuron.
+        Parameters
+        ----------
+        score_lookup : ScoreMatrixLookup
+            nblast score matrix
+
+        nrn_q : NeuronObj
+            Neuron to query
+
+        nrn_t : NeuronObj
+            Target neuron
+
+        CatmaidInstance : CatmaidDataInterface
+            Needed to query the server for new data
+
+        connection_type : 'presynaptic' or 'postsynaptic'
+            Defines direction of connections to look at.
+
+        ntop_q : Positive Int
+            Number of top connections to consider
+
+        kmin_f : float (between 0 and 1)
+            Fraction of query synapses to include in target search. E.g. If the
+            connection is X synapses in the minimum weight connection in the
+            query, look for partners with more than kmin_f * X synapses in
+            target.
+
+    """
+
+    # Get top partners of query neuron
+    partner_ids_all_q = nrn_q.synaptic_partners( connection_type=connection_type )
+    ntop_q = min(ntop_q,len(partner_ids_all_q))
+    partner_nrns_q = cat.NeuronList.from_id_list( id_list = partner_ids_all_q[0:ntop_q,0],
+                                                  CatmaidInterface=CatmaidInterface,
+                                                  with_tags=True,
+                                                  with_annotations=False )
+
+    min_synapses = int(max( kmin_t, kmin_f*partner_ids_all_q[ntop_q-1,1] ) )
+
+    # Get (larger list of) top partners of target neuron
+    partner_ids_all_t = nrn_t.synaptic_partners( connection_type=connection_type,
+                                                 min_synapses=min_synapses,
+                                                 normalized=normalized )
+    partner_nrns_t = cat.NeuronList.from_id_list( id_list = partner_ids_all_t[:,0],
+                                                  CatmaidInterface=CatmaidInterface,
+                                                  with_tags=True,
+                                                  with_annotations=False )
+    partner_nrns_t_transformed = transform.transform_neuronlist(
+                                                partner_nrns_t,
+                                                from_group=from_group,
+                                                to_group=to_group,
+                                                CatmaidInterface=CatmaidInterface,
+                                                contralateral=contralateral)
+
+    Pdf = match_likelihood_ratio( partner_nrns_q,
+                                partner_nrns_t_transformed,
+                                pair_map,
+                                conn_stats,
+                                morpho_stats,
+                                score_lookup,
+                                min_length = min_length,
+                                resample_distance=resample_distance,
+                                is_mirrored=True )
+    Sb = Pdf.pivot(index='Queries',columns='Targets', values='logP')
     matching = max_match_similarity( Sb )
 
     # Add synapses 

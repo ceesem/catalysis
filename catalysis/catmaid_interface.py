@@ -278,6 +278,25 @@ class CatmaidDataInterface():
             out['skeletons'].update(d['skeletons'])
         return out
 
+    def skeleton_statistics( self, skeleton_id ):
+        """
+            Get large-scale skeleton statistics
+        """
+        url = '{}/skeleton/{}/statistics'.format(self.CatmaidClient.project_id, skeleton_id)
+        d = self.CatmaidClient.get(url)
+        return d
+
+    def total_inputs( self, id_list ):
+        """
+            Get large-scale skeleton statistics
+        """
+        d = self._get_connected_skeleton_info(id_list)
+        total_inputs = {skid:0 for skid in id_list}
+        for pid in d['incoming']:
+            for skid in d['incoming'][pid]['skids']:
+                total_inputs[int(skid)] += sum( d['incoming'][pid]['skids'][skid] )
+        return total_inputs
+
     def postsynaptic_count( self, connector_list ):
         """
             Get the number of postsynaptic targets for a list of connector ids.
@@ -906,3 +925,29 @@ class CatmaidDataInterface():
             groups[group_name][instance_name] = anno
 
         return groups
+
+
+    def reroot_neurons_to_soma( self, id_list ):
+        """
+        Run through an id_list and make sure that,if there is a single soma, the neuron
+        is rooted to it.
+        """
+        for skid in id_list:
+            tag_query = '^soma$|^cell body'
+            dsoma = self.tag_query_for_skeleton( skid, tag_query=tag_query )
+            if len(dsoma) == 0:
+                print('Skipping {} for want of a soma. Fix at the link below:'.format(skid))
+                self.url_to_neurons([skid])
+
+                continue
+            elif len(dsoma) > 1:
+                print('Skipping {} which has too many somata. Fix at the link below:'.format(skid))
+                self.url_to_neurons([skid])
+                continue
+            else:
+                curr_root = self.root_for_skeleton( skid )
+                if curr_root['root_id'] != dsoma[0][0]:
+                    url = '/{}/skeleton/reroot'.format( self.CatmaidClient.project_id )
+                    dat = {'treenode_id': dsoma[0][0]}
+                    d = self.CatmaidClient.post( url, data=dat )
+                    print('Rerooted {}...'.format(skid))
