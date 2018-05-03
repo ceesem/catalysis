@@ -30,7 +30,18 @@ class CatmaidDataInterface():
     def from_json( cls, filename ):
         return cls( client.CatmaidClient.from_json( filename ) )
 
-    def url_to_point( self, xyz, node_skeleton_ids = None, tool = 'tracingtool', zoomlevel=0):
+    def skip_ids( self, id_list, ids_to_skip ):
+        """
+            Simple helper function to strip certain ids from a list.
+        """
+        return list( set(id_list).difference( set(ids_to_skip) ) )
+
+    def set_difference_annotations( self, id_list, skip_annotations ):
+
+        ids_to_skip = self.get_ids_from_annotations(skip_annotations, flatten=True)
+        return self.skip_ids(id_list, ids_to_skip)
+
+    def url_to_point( self, xyz, node_skeleton_ids = None, tool = 'tracingtool', zoomlevel=0, show=True):
         """
             Generate a URL that goes to a specified location (and, optionally, a selected node) in a CATMAID instance.
 
@@ -65,7 +76,13 @@ class CatmaidDataInterface():
             strs = [base_url,pid_str,x_str,y_str,z_str,node_str,skid_str,tool_str,sid_str,zoom_str]
         else:
             strs = [base_url,pid_str,x_str,y_str,z_str,tool_str,sid_str,zoom_str]
-        return '&'.join(strs)
+        out_url = '&'.join(strs)
+        if show==True:
+            display(HTML(
+                '<a href="{}">{}</a>'.format(
+                                out_url,
+                                'Link to point '+str(xyz) ) ) )
+        return out_url
 
     def url_to_neurons( self, id_list ):
         """
@@ -364,6 +381,21 @@ class CatmaidDataInterface():
             d = []
         return d
 
+    def get_cable_length( self, id_list, num_per_call = 50 ):
+        """ 
+            Get cable length for a list of skeleton ids.
+        """
+        url = '/{}/skeletons/cable-length'.format( self.CatmaidClient.project_id )
+        data = {}
+        
+        id_list_chunked = [ id_list[ii:ii+num_per_call] for ii in range(0, len(id_list), num_per_call)]
+        lens = {}
+        for chunk in id_list_chunked:
+            for ind, skid in enumerate(chunk):
+                data['skeleton_ids[{}]'.format( ind ) ] = skid
+                lens.update( self.CatmaidClient.get( url, params=data ) )
+        return self.CatmaidClient.get( url, params=data )
+
     def get_annotations( self ):
         """
             Retrieve the list of annotations and the annotation ids.
@@ -533,7 +565,7 @@ class CatmaidDataInterface():
             else:
                 return { id:anno_names[ind] for ind, id in enumerate(annotation_id_list) }
 
-    def get_ids_from_annotations( self, annotation_id_list, flatten = False ):
+    def get_ids_from_annotations( self, annotation_id_list, skip_annotations=None, flatten = False ):
         """
             Get the skeleton ids annotated with a list of annotation ids.
 
@@ -553,13 +585,18 @@ class CatmaidDataInterface():
 
         annotation_id_list = self.parse_annotation_list(annotation_id_list, output = 'ids' )
 
+        if skip_annotations is not None:
+            ids_to_skip = self.get_ids_from_annotations(skip_annotations)
+        else:
+            ids_to_skip = []
+
         url = '/{}/annotations/query-targets'.format( self.CatmaidClient.project_id )
 
         anno_to_skids = {}
         for anno_id in annotation_id_list:
             d = self.CatmaidClient.post( url, data = { 'annotated_with' : anno_id } )
             ids_returned = [ item['skeleton_ids'][0] for item in d['entities'] ]
-            anno_to_skids[anno_id] = ids_returned
+            anno_to_skids[anno_id] = self.skip_ids( ids_returned, ids_to_skip )
 
         if flatten:
             all_ids = [skid for skid in chain.from_iterable( anno_to_skids.values() )]
@@ -606,6 +643,64 @@ class CatmaidDataInterface():
                 postdata['meta_annotations[{}]'.format(i)] = id
         d = self.CatmaidClient.post( url, data=postdata )
         return d
+
+    def in_surrounding_box( self, xyz0, d ):
+        """
+            Get skeleton ids within a bounding box evenly surrounding a point with distance d.
+            Parameters
+            ----------
+
+                xyz0 : 3 element array-like
+                    Location of the center of the box in x,y,z
+
+                d : number
+                    Distance from center point to locate the bounding box walls
+
+            Returns
+            -------
+                list
+                    skeleton ids passing through the box. 
+        """
+
+        return self.in_bounding_box(
+                                    xyz0[0]-d,
+                                    xyz0[0]+d,
+                                    xyz0[1]-d,
+                                    xyz0[1]+d,
+                                    xyz0[2]-d,
+                                    xyz0[2]+d )
+
+    def in_bounding_box( self, x_min, x_max, y_min, y_max, z_min, z_max ):
+        """
+            Get skeleton in within a bounding box specified in world coordinates.
+            
+            Parameters
+            ----------
+                x_min : number
+                x_max : number
+                y_min : number
+                y_max : number
+                z_min : number
+                z_max : number
+                    Each number corresponds to the of the extremes of the bounding box.
+
+            Returns
+            -------
+
+            list
+                List of skeleton ids passing through the bounding box.
+
+        """
+        url = '/{}/skeletons/in-bounding-box'.format( self.CatmaidClient.project_id )
+        data = {
+            'minx':x_min,
+            'miny':y_min,
+            'minz':z_min,
+            'maxx':x_max,
+            'maxy':y_max,
+            'maxz':z_max
+        }
+        return self.CatmaidClient.get( url, params=data )
 
     def _get_connected_skeleton_info( self, id_list  ):
         """

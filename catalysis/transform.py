@@ -59,7 +59,6 @@ def transform_neuron_from_landmarks(nrn,
     nrn_t.id = nrn_t.id
 
     # Transform all the nodes.
-    #print("Transforming nodes...")
     vs = np.array([nrn_t.nodeloc[nid] for nid in nrn_t.nodeloc])
     vprimes = moving_least_squares_affine_vectorized(vs,from_landmarks,to_landmarks)
     for ind, nid in enumerate(nrn_t.nodeloc):
@@ -79,35 +78,6 @@ def transform_neuron_from_landmarks(nrn,
                                                             to_landmarks)
         for ind, cid in enumerate(nrn_t.outputs.locs):
             nrn_t.outputs.locs[cid] = voutprimes[ind,:]
-
-    # for nid in nrn_t.nodeloc:
-    #     v = np.array(nrn_t.nodeloc[nid])
-    #     ws = compute_weights( v, from_landmarks )
-    #     nrn_t.nodeloc[nid] = moving_least_squares_affine_from_landmarks(
-    #                                                         v,
-    #                                                         from_landmarks,
-    #                                                         to_landmarks,
-    #                                                         ws )
-
-    # Transform all the synapse locations.
-    #print("Transforming synapses...")
-    # if transform_synapses:
-    #     for vid in nrn_t.inputs.locs:
-    #         v = np.array(nrn_t.inputs.locs[vid])
-    #         ws = compute_weights( v, from_landmarks )
-    #         nrn_t.inputs.locs[vid] = moving_least_squares_affine_from_landmarks(
-    #                                                             v,
-    #                                                             from_landmarks,
-    #                                                             to_landmarks,
-    #                                                             ws )
-    #     for vid in nrn_t.outputs.locs:
-    #         v = np.array(nrn_t.outputs.locs[vid])
-    #         ws = compute_weights( v, from_landmarks )
-    #         nrn_t.outputs.locs[vid] = moving_least_squares_affine_from_landmarks(
-    #                                                             v,
-    #                                                             from_landmarks,
-    #                                                             to_landmarks,
-    #                                                             ws )
 
     return nrn_t
 
@@ -175,7 +145,9 @@ def moving_least_squares_affine_vectorized( vs, ps, qs ):
     qs = qs.ravel().reshape(1,3,Nlandmark,1,order='F')
     vs = vs.ravel().reshape(1,3,1,Npoint,order='F')
 
-    ds = sp.spatial.distance.cdist(ps.ravel('F').reshape(Nlandmark,3),vs.ravel('F').reshape(Npoint,3), "sqeuclidean").reshape(1,1,Nlandmark,Npoint)+sys.float_info.epsilon
+    ds = sp.spatial.distance.cdist( ps.ravel('F').reshape(Nlandmark,3),
+                                    vs.ravel('F').reshape(Npoint,3),
+                                    "sqeuclidean").reshape(1,1,Nlandmark,Npoint ) + sys.float_info.epsilon
     ws = 1/ds
 
     wi_norm_inv = 1/np.sum(ws,axis=2)
@@ -301,3 +273,4 @@ def _parse_landmarks(from_group=None,
         from_landmarks = np.vstack((from_landmarks,store_to_landmarks))
 
     return from_landmarks, to_landmarks
+

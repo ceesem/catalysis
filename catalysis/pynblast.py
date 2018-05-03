@@ -38,6 +38,31 @@ def nblast_neuron_pair( nrn_q,
         S = S_a
     return S
 
+def point_cloud_nblast( nrn_q_dotprop, nrn_t_dotprop, score_lookup ):
+    """
+    Returns pointwise values for NBLAST.
+
+    Parameters
+    ----------
+    nrn_q_dotprop : numpy array
+        Dotprops for the query neuron.
+
+    nrn_t_dotprop : numpy array
+        Dotprops for the target neuron
+
+    score_lookup : ScoreLookup object
+        Score table and associated functions
+
+    Returns
+    -------
+    
+    numpy array
+        An nx4 array where n is the number of nodes in the query dotprop. Columns 0,1,2 are x,y, and z locations, 3 is NBLAST score.
+    """
+    d_and_udotv = neuron_comparison_nblast_components(nrn_q_dotprop, nrn_t_dotprop, as_dotprop=True)
+    S_b = nblast_dist_fun_local(d_and_udotv, score_lookup)
+    return np.hstack( ( nrn_q_dotprop[:,0:3], S_b.reshape( ( len(S_b), 1 ) ) ) )
+
 def max_blast_score( L, score_lookup ):
     """
         Returns the maximum blast similarity for a dotprop of node length L, the max possible value of nblast for a given query, where all distances are 0 and all dot products are 1.
@@ -878,3 +903,19 @@ def compare_partners_prob( nrn_q,
         out['partners_t'] = partner_nrns_t_transformed.slice_by_id(matching['Target_id'])
 
     return out
+
+
+def fit_line_to_neurons_initial_segments( nrns, initial_length ):
+    """
+    """
+    xyzs = []
+    for nrn in nrns:
+        close_points = nrn.dist_nt
+
+    for nrn in nrns:
+        soma_loc = nrn.root
+
+    xyzs = np.zeros((0,3))
+
+
+

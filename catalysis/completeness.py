@@ -616,7 +616,7 @@ def match_report( id_list1, id_list2, match_via, CatmaidInterface, name1='Group 
 def _match_completed( ps, match_report, min_open_ends=0.05,  ):
     match_completed = dict()
     for lin in match_report:
-        if isinstance( match_report[lin], np.integer ):
+        if isinstance( match_report[lin], np.int ):
             relids = [match_report[lin]]
         else:
             relids = match_report[lin]
