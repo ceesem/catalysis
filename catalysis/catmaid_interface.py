@@ -5,7 +5,7 @@ from itertools import chain
 import networkx as nx
 import numpy as np
 from IPython.core.display import display, HTML
-
+import matplotlib.colors as cl
 
 class CatmaidDataInterface():
     """
@@ -100,7 +100,8 @@ class CatmaidDataInterface():
             display(HTML(
                 '<a href="{}">{}</a>'.format(
                                 self.url_to_point( xyz,
-                                                  (root_info['root_id'], neuron_id)
+                                                  (root_info['root_id'], neuron_id),
+                                                  show=False
                                                   ),
                                 names[str(neuron_id)] )
                 ))
@@ -433,6 +434,8 @@ class CatmaidDataInterface():
         """
         if type(anno_list) is str or type(anno_list) is int:
             anno_list = [anno_list]
+        else:
+            anno_list = list(anno_list)
 
         anno_dict_names = self.get_annotations()
         if output is 'names':
@@ -559,7 +562,7 @@ class CatmaidDataInterface():
                 list or dict
                     List or dict containing the names. If a dict, keys are annotation ids.
             """
-            anno_names = self.parse_annotation_list( annotation_id_list, output = 'names ')
+            anno_names = self.parse_annotation_list( annotation_id_list, output = 'names')
             if flatten:
                 return anno_names
             else:
@@ -593,6 +596,7 @@ class CatmaidDataInterface():
         url = '/{}/annotations/query-targets'.format( self.CatmaidClient.project_id )
 
         anno_to_skids = {}
+        n_ids = 0
         for anno_id in annotation_id_list:
             d = self.CatmaidClient.post( url, data = { 'annotated_with' : anno_id } )
             ids_returned = [ item['skeleton_ids'][0] for item in d['entities'] ]
@@ -644,7 +648,7 @@ class CatmaidDataInterface():
         d = self.CatmaidClient.post( url, data=postdata )
         return d
 
-    def in_surrounding_box( self, xyz0, d ):
+    def in_surrounding_box( self, xyz0, d, min_nodes=None, min_cable=None ):
         """
             Get skeleton ids within a bounding box evenly surrounding a point with distance d.
             Parameters
@@ -668,9 +672,11 @@ class CatmaidDataInterface():
                                     xyz0[1]-d,
                                     xyz0[1]+d,
                                     xyz0[2]-d,
-                                    xyz0[2]+d )
+                                    xyz0[2]+d,
+                                    min_nodes=min_nodes,
+                                    min_cable=min_cable)
 
-    def in_bounding_box( self, x_min, x_max, y_min, y_max, z_min, z_max ):
+    def in_bounding_box( self, x_min, x_max, y_min, y_max, z_min, z_max, min_nodes=None, min_cable=None ):
         """
             Get skeleton in within a bounding box specified in world coordinates.
             
@@ -700,6 +706,10 @@ class CatmaidDataInterface():
             'maxy':y_max,
             'maxz':z_max
         }
+        if min_nodes is not None:
+            data['min_nodes']=min_nodes
+        if min_cable is not None:
+            data['min_cable']=min_cable
         return self.CatmaidClient.get( url, params=data )
 
     def _get_connected_skeleton_info( self, id_list  ):
@@ -1028,7 +1038,7 @@ class CatmaidDataInterface():
         is rooted to it.
         """
         for skid in id_list:
-            tag_query = '^soma$|^cell body'
+            tag_query = '^soma$|^cell body|^out to nerve'
             dsoma = self.tag_query_for_skeleton( skid, tag_query=tag_query )
             if len(dsoma) == 0:
                 print('Skipping {} for want of a soma. Fix at the link below:'.format(skid))
@@ -1046,3 +1056,17 @@ class CatmaidDataInterface():
                     dat = {'treenode_id': dsoma[0][0]}
                     d = self.CatmaidClient.post( url, data=dat )
                     print('Rerooted {}...'.format(skid))
+
+    def export_json_for_selection_widget( self, filename, skids, color=None, opacity=None):
+        if color is None:
+            color = {skid:'#ffff00' for skid in skids}
+        if opacity is None:
+            opacity = {skid:1 for skid in skids}
+        elif len(opacity) == 1:
+            opacity = {skid:opacitiy for skid in skids}
+
+        dat = []
+        for skid in skids:
+            dat.append( dict( skeleton_id = skid, color = cl.to_hex(color[skid]), opacity = opacity[skid] ) )
+        with open(filename,'w') as fid:
+            json.dump(dat,fid)

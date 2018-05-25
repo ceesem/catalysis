@@ -38,7 +38,7 @@ def nblast_neuron_pair( nrn_q,
         S = S_a
     return S
 
-def point_cloud_nblast( nrn_q_dotprop, nrn_t_dotprop, score_lookup ):
+def point_cloud_nblast( nrn_q_dotprop, nrn_t_dotprop, score_lookup, max_proximity=None):
     """
     Returns pointwise values for NBLAST.
 
@@ -59,7 +59,7 @@ def point_cloud_nblast( nrn_q_dotprop, nrn_t_dotprop, score_lookup ):
     numpy array
         An nx4 array where n is the number of nodes in the query dotprop. Columns 0,1,2 are x,y, and z locations, 3 is NBLAST score.
     """
-    d_and_udotv = neuron_comparison_nblast_components(nrn_q_dotprop, nrn_t_dotprop, as_dotprop=True)
+    d_and_udotv = neuron_comparison_nblast_components(nrn_q_dotprop, nrn_t_dotprop, as_dotprop=True, max_proximity=max_proximity)
     S_b = nblast_dist_fun_local(d_and_udotv, score_lookup)
     return np.hstack( ( nrn_q_dotprop[:,0:3], S_b.reshape( ( len(S_b), 1 ) ) ) )
 
@@ -81,10 +81,11 @@ def _nblast_neuron_pair_for_mp( input ):
     resample_distance = input[3]
     num_nn = input[4]
     normalize = input[5]
+    max_proximity = input[6]
 
     # Check if neurons are effectively emtpy, likely due to Strahler pruning.
     if len( nrn_q_dotprop ) > 1 and len(nrn_t_dotprop) > 1:
-        d_and_udotv = neuron_comparison_nblast_components( nrn_q_dotprop, nrn_t_dotprop, resample_distance=resample_distance, num_nn = num_nn, as_dotprop = True )
+        d_and_udotv = neuron_comparison_nblast_components( nrn_q_dotprop, nrn_t_dotprop, resample_distance=resample_distance, num_nn = num_nn, as_dotprop = True, max_proximity=max_proximity )
         S = nblast_dist_fun( d_and_udotv, score_lookup )
         
         if normalize:
@@ -167,10 +168,13 @@ def interpolate_path( xyz, resample_distance ):
 
     return np.array( [ [xi[ind], yi[ind], zi[ind]] for ind,val in enumerate(xi)] )
 
-def neuron_comparison_nblast_components( source_nrn, target_nrn, resample_distance=1000, num_nn=5, as_dotprop = False ):
+def neuron_comparison_nblast_components( source_nrn, target_nrn, resample_distance=1000, num_nn=5, as_dotprop = False, max_proximity = None ):   
+
     """
         Compute the distance and dot product values comparing the nodes in the source neuron to those in the target neuron.
     """
+    if max_proximity is None:
+        max_proximity = np.inf
 
     if as_dotprop:
         source_dp = source_nrn
@@ -181,10 +185,13 @@ def neuron_comparison_nblast_components( source_nrn, target_nrn, resample_distan
     udotv = []
     dist_tree = sp.spatial.KDTree( target_dp[:,0:3] )
     ds = dist_tree.query( source_dp[:,0:3], 1 )
-
-    d_and_udotv = np.zeros( (len(ds[0]),2) )
-    d_and_udotv[:,0] = ds[0]
-    d_and_udotv[:,1] = np.einsum('ij,ij->i', source_dp[:,3:], target_dp[ds[1],3:])
+    if min(ds) > max_proximity:
+        d_and_udotv = np.zeros( (len(ds[0]),2) )
+        d_and_udotv[:,0] = ds[0]
+        d_and_udotv[:,1] = np.einsum('ij,ij->i', source_dp[:,3:], target_dp[ds[1],3:])
+    else:
+        d_and_udotv[:,0] = ds[0]
+        d_and_udotv[:,1] = np.ones(np.shape(ds[0]))
     return d_and_udotv
 
 def nblast_dist_fun( d_and_udotv, score_lookup ):
@@ -230,19 +237,22 @@ class ScoreMatrixLookup:
         return self.mat[ind_d,ind_udotv]
 
 
-def nblast_neurons(score_lookup, nrns_q, nrns_t=None, resample_distance=1000, num_nn=5, min_strahler=None, normalize=False, processes=4 ):
+def nblast_neurons(score_lookup, nrns_q, nrns_t=None, resample_distance=1000, num_nn=5, min_strahler=None, normalize=False, max_proximity=None, as_dotprop=False, processes=4 ):
     """
         Query a list of neurons against one another and return as a data frame. Uses multiprocessing by default.
     """
     if type(nrns_q) is 'NeuronObj':
         nrns_q = [nrns_q]
 
-    nrns_q_dotprop = {}
-
     pool = Pool( processes=processes )
-    neuron_to_dotprop_cond = partial( neuron_to_dotprop, resample_distance=resample_distance, min_strahler=min_strahler, num_nn=num_nn)
-    nrns_q_dotprop_list = pool.map( neuron_to_dotprop_cond, nrns_q )
-    nrns_q_dotprop = {nrn.id:nrns_q_dotprop_list[ii] for ii, nrn in enumerate(nrns_q) }
+
+    nrns_q_dotprop = {}
+    if as_dotprop:
+        nrns_q_dotprop = nrns_q
+    else:
+        neuron_to_dotprop_cond = partial( neuron_to_dotprop, resample_distance=resample_distance, min_strahler=min_strahler, num_nn=num_nn)
+        nrns_q_dotprop_list = pool.map( neuron_to_dotprop_cond, nrns_q )
+        nrns_q_dotprop = {nrn.id:nrns_q_dotprop_list[ii] for ii, nrn in enumerate(nrns_q) }
 
     if nrns_t is None:
         nrns_t = nrns_q
@@ -250,8 +260,11 @@ def nblast_neurons(score_lookup, nrns_q, nrns_t=None, resample_distance=1000, nu
     else:
         nrns_t_dotprop = {}
         for nrn in nrns_t:
-            nrns_t_dotprop_list = pool.map( neuron_to_dotprop_cond, nrns_t )
-            nrns_t_dotprop = {nrn.id:nrns_t_dotprop_list[ii] for ii, nrn in enumerate(nrns_t) }
+            if as_dotprop:
+                nrns_t_dotprop = nrns_t
+            else:
+                nrns_t_dotprop_list = pool.map( neuron_to_dotprop_cond, nrns_t )
+                nrns_t_dotprop = {nrn.id:nrns_t_dotprop_list[ii] for ii, nrn in enumerate(nrns_t) }
 
     queries = []
     targets = []
@@ -259,12 +272,24 @@ def nblast_neurons(score_lookup, nrns_q, nrns_t=None, resample_distance=1000, nu
     args = []
 
     for nrn_q in nrns_q:
-        q_name = name_number( nrn_q )
+        if as_dotprop:
+            q_name = nrn_q
+        else:
+            q_name = name_number( nrn_q )
+
         for nrn_t in nrns_t:
-            t_name = name_number( nrn_t )
+            if as_dotprop:
+                t_name = nrn_t
+            else:
+                t_name = name_number( nrn_t )
+
             queries.append(q_name)
             targets.append(t_name)
-            args.append((nrns_q_dotprop[nrn_q.id], nrns_t_dotprop[nrn_t.id], score_lookup, resample_distance, num_nn, normalize) )
+
+            if as_dotprop:
+                args.append((nrns_q_dotprop[nrn_q], nrns_t_dotprop[nrn_t], score_lookup, resample_distance, num_nn, normalize, max_proximity) )
+            else:
+                args.append((nrns_q_dotprop[nrn_q.id], nrns_t_dotprop[nrn_t.id], score_lookup, resample_distance, num_nn, normalize, max_proximity) )
 
     similarities = pool.map( _nblast_neuron_pair_for_mp, args  )
     pool.close()
@@ -299,8 +324,10 @@ def exact_nblast(score_lookup,
                 nrns_t,
                 resample_distance=1000,
                 num_nn=5,
+                max_proximity=None,
                 min_strahler=None,
                 min_length=None,
+                as_dotprop=False,
                 processes=4 ):
     """
         Compute a symmetric normalized version of NBLAST to test for "exact
@@ -319,8 +346,10 @@ def exact_nblast(score_lookup,
                         resample_distance=resample_distance,
                         num_nn=num_nn,
                         min_strahler=min_strahler,
+                        max_proximity=None,
                         processes=processes,
-                        normalize=True
+                        normalize=True,
+                        as_dotprop=as_dotprop
                         ).pivot(  index='Queries',
                                   columns='Targets',
                                   values='S')
@@ -331,8 +360,10 @@ def exact_nblast(score_lookup,
                         resample_distance=resample_distance,
                         num_nn=num_nn,
                         min_strahler=min_strahler,
+                        max_proximity=None,
                         processes=processes,
-                        normalize=True
+                        normalize=True,
+                        as_dotprop=as_dotprop
                         ).pivot(  index='Targets',
                                   columns='Queries',
                                   values='S' )
@@ -582,7 +613,7 @@ def paired_connectivity_vector( nrns, pair_map, is_mirrored=False, normalize_wei
             conn_vecs_in[skid] = vec_in
 
     # if normalize_weights:
-    #     # Update conn_vecs_in for inputs
+Z    #     # Update conn_vecs_in for inputs
     #     num_inputs = {nrn.id:nrn.inputs.num() for nrn in nrns}
     #     for skid in conn_vecs_in:
     #         if num_inputs[skid] > 0 :
@@ -903,19 +934,4 @@ def compare_partners_prob( nrn_q,
         out['partners_t'] = partner_nrns_t_transformed.slice_by_id(matching['Target_id'])
 
     return out
-
-
-def fit_line_to_neurons_initial_segments( nrns, initial_length ):
-    """
-    """
-    xyzs = []
-    for nrn in nrns:
-        close_points = nrn.dist_nt
-
-    for nrn in nrns:
-        soma_loc = nrn.root
-
-    xyzs = np.zeros((0,3))
-
-
 

@@ -152,7 +152,7 @@ def sphere_data( xyz0, color, radius=2000, npts=10 ):
     return fig_prop['data'][0]
 
 
-def path_data( xyz, color = (20,20,20), line=None, width=2 ):
+def path_data( xyz, color = (0.3,0.3,0.3), line=None, width=2 ):
     """
         Generate Plotly Scatter3d line for a numpy array of xyz points treated as a sequence.
     """

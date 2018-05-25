@@ -853,6 +853,16 @@ class NeuronObj:
                 self.A.transpose(), directed=True, unweighted=False, method='D')
         return D[self.node2ind[self.root]]
 
+    def path_to_root( self, nid ):
+        """
+            Starting at a given node id, returns an ordered list of the node ids on the path to root.
+        """
+        path = []
+        while nid is not None:
+            path.append(nid)
+            nid = self.nodeparent[nid]
+        return path
+
     def split_by_tag( self, tag_str ):
         """
             Returns components of a neuron split by a specific tag
