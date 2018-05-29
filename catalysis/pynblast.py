@@ -185,11 +185,12 @@ def neuron_comparison_nblast_components( source_nrn, target_nrn, resample_distan
     udotv = []
     dist_tree = sp.spatial.KDTree( target_dp[:,0:3] )
     ds = dist_tree.query( source_dp[:,0:3], 1 )
-    if min(ds) > max_proximity:
+    if min(ds[0]) > max_proximity:
         d_and_udotv = np.zeros( (len(ds[0]),2) )
         d_and_udotv[:,0] = ds[0]
         d_and_udotv[:,1] = np.einsum('ij,ij->i', source_dp[:,3:], target_dp[ds[1],3:])
     else:
+        d_and_udotv = np.zeros( (len(ds[0]),2) )
         d_and_udotv[:,0] = ds[0]
         d_and_udotv[:,1] = np.ones(np.shape(ds[0]))
     return d_and_udotv
@@ -360,7 +361,6 @@ def exact_nblast(score_lookup,
                         resample_distance=resample_distance,
                         num_nn=num_nn,
                         min_strahler=min_strahler,
-                        max_proximity=None,
                         processes=processes,
                         normalize=True,
                         as_dotprop=as_dotprop
@@ -613,7 +613,7 @@ def paired_connectivity_vector( nrns, pair_map, is_mirrored=False, normalize_wei
             conn_vecs_in[skid] = vec_in
 
     # if normalize_weights:
-Z    #     # Update conn_vecs_in for inputs
+    #     # Update conn_vecs_in for inputs
     #     num_inputs = {nrn.id:nrn.inputs.num() for nrn in nrns}
     #     for skid in conn_vecs_in:
     #         if num_inputs[skid] > 0 :

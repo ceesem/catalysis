@@ -609,8 +609,10 @@ def match_report( id_list1, id_list2, match_via, CatmaidInterface, name1='Group 
         ps = property_summary_estimated(id_list1+id_list2, CatmaidInterface )
         match_completed1 = _match_completed(ps, match_report1 )
         match_completed2 = _match_completed(ps, match_report2 )
+        report = pd.DataFrame( { name1: match_report1, name2: match_report2, name1+'_complete':match_completed1, name2+'_complete':match_completed2} )
+    else:
+        report = pd.DataFrame( { name1: match_report1, name2: match_report2 } )
 
-    report = pd.DataFrame( { name1: match_report1, name2: match_report2, name1+'_complete':match_completed1, name2+'_complete':match_completed2} )
     return report
 
 def _match_completed( ps, match_report, min_open_ends=0.05,  ):
