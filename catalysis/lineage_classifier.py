@@ -5,6 +5,8 @@ import catalysis as cat
 import catalysis.transform as transform
 import catalysis.pynblast as pynblast
 from itertools import chain
+import sys
+epsilon = sys.float_info.epsilon
 
 
 def lineage_table( hemilateral_groups, lin_landmarks, side_name ):
@@ -110,8 +112,7 @@ def compute_conditional_distributions( nblast_mat, lin_dict, lin_name2id, rel_li
 			all_sim = [ nblast_mat[skid1][skid2] for skid2 in within_ids ]
 			P_unmatch[lin].append( np.median(all_sim) )
 
-		return P_match, P_unmatch
-#def find_proximate_lineages( CatmaidInterface ):
+	return P_match, P_unmatch
 
 def fit_gaussian_kdes( P_dat ):
 	kdes_dat = []
@@ -122,28 +123,14 @@ def fit_gaussian_kdes( P_dat ):
 		kde_dat_norm.append( kdes_dat[ind].integrate_box_1d(0,1) )
 	return kdes_dat, kde_dat_norm
 
-def lineage_likelihood_ratios(rel_skid, init_nblast, lin_dict, lin_name2id, rel_lins, kdes_cond, kde_cond_norm, kdes_unmatch, kde_unmatch_norm):
+def lineage_likelihood_ratios(rel_skid, nblast_mat, lin_dict, lin_name2id, rel_lins, kdes_match, kdes_match_norm, kdes_unmatch, kdes_unmatch_norm):
 	lhds = []
 	for ind, lin in enumerate(rel_lins):
-	    d_toA = np.median(np.array([init_nblast[init_nblast.index==rel_skid][skid].values for skid in lin_dict[lin_name2id[lin]]]) )
-	    num =  kdes_cond[ind].evaluate( np.round(d_toA,2) )/kde_cond_norm[ind]
-	    denom =  kdes_unmatch[ind].evaluate( np.round(d_toA,2) )/kde_unmatch_norm[ind]
+	    d_toA = np.median(np.array([nblast_mat[nblast_mat.index==rel_skid][skid].values for skid in lin_dict[lin_name2id[lin]]]) )
+	    num =  kdes_match[ind].evaluate( np.round(d_toA,2) )/kdes_match_norm[ind]
+	    denom =  kdes_unmatch[ind].evaluate( np.round(d_toA,2) )/kdes_unmatch_norm[ind]
 	    lhds.append( num / denom )
-	lhds = np.array(lhds).reshape(-1)
+	lhds = np.log(np.array(lhds).reshape(-1))
 	lhds_ratio = np.round( lhds / np.max(lhds), 3)
 	base_skid = len(rel_lins) * [rel_skid]
 	return pd.DataFrame( {'Lineage':rel_lins, 'LikelihoodRatio':lhds, 'FractionOfBest':lhds_ratio, 'SkeletonId':base_skid})
-
-def lineage_likelihood_table(rel_skid, init_nblast, lin_dict, lin_name2id, rel_lins, kdes_match, kde_match_norm, kdes_unmatch, kde_unmatch_norm )
-	lineage_table = []
-	for rel_skid in problem_ids:
-	    lineage_table.append(lineage_likelihood_ratios(rel_skid,
-	                                                  problem_nblast,
-	                                                  lin_dict,
-	                                                  lin_name2id,
-	                                                  rel_lins,
-	                                                  kdes_cond,
-	                                                  kde_cond_norm,
-	                                                  kdes_unmatch,
-	                                                  kde_unmatch_norm) )
-	lineage_table = pd.concat(lineage_table,ignore_index=True)
