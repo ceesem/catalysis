@@ -1,0 +1,7 @@
+{
+  "base_url": "URL_TO_CATMAID_INSTANCE_WITHOUT_TRAILING_SLASH",
+  "token": "personal_token",
+  "auth_name": "HTTP Auth User Name",
+  "auth_pass": "HTTP Auth Password",
+  "project_id": Integer Project Id
+}
