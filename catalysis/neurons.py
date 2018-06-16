@@ -14,6 +14,7 @@ import pandas as pd
 import gzip
 import copy
 from itertools import chain
+import networkx as nx
 
 try:
     import cPickle as pickle
@@ -358,6 +359,25 @@ class NeuronList:
                 anno_dict[ anno_info['id'] ][ 'skids' ].append( int(skid) )
         return anno_dict
 
+    def get_adjacency_nx_graph( self ):
+        """
+            Build a weighted adjacency matrix from neurons in networkx graph form, indexed by node id.
+        """
+
+        A = nx.DiGraph()
+        ids = self.ids()
+        A.add_nodes_from(ids)
+        for skid in self.neurons:
+            nrn = self.neurons[skid]
+            for conn_id in nrn.outputs.target_ids:
+                for targ in nrn.outputs.target_ids[conn_id]:
+                    if targ in ids:
+                        if targ in A[skid]:
+                            A[skid][targ]['weight'] += 1
+                        else:
+                            A.add_edge(skid,targ,weight=1)
+        return A
+
     def get_adjacency_matrix( self, input_normalized = False ):
         """
             Build a weighted adjacency matrix from neurons
@@ -417,8 +437,6 @@ class NeuronList:
                 else:
                     writer.writerow( [names[i]] + row.tolist() )
         return 1
-
-
 
     def group_adjacency_matrix( self, groups, func=np.sum, input_normalized = False ):
         """

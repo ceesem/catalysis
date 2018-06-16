@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from catpy import *
+from catpy import client
 from itertools import chain
 import networkx as nx
 import numpy as np
@@ -377,7 +377,8 @@ class CatmaidDataInterface():
             for ind, connid in enumerate(connector_id_list):
                 opts[ 'connector_ids[{}]'.format(ind) ] = connid
 
-            d = self.CatmaidClient.post( url, data = opts, force_json = True )
+#            d = self.CatmaidClient.post( url, data = opts, force_json = True )
+            d = self.CatmaidClient.post( url, data = opts )
         else:
             d = []
         return d
