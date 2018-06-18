@@ -217,3 +217,122 @@ def match_report_plot_data( nrn_q, nrns_t, matches, color_q=(0.2,0.2,0.2), color
                                   color=color_match,
                                   width=2 )
     return nrn_q_data + nrn_t_data
+
+def connectivity_line_plot( A, plot_groups, colors, params=None, highlight_reciprocal=False  ):
+    """
+    Produce a mesh-style line plot of neurons.
+    Parameters
+    ----------
+        A : NetworkX graph
+            Directed matrix such that A['pre_id']['post_id'] = # synapses from pre to post.
+
+        plot_groups : dict
+            Dictionary such that plot_groups[group_name] = [ids in group]
+
+        colors : dict
+            Dictionary such that colors[ group_name ] = color for plotting.
+
+        params : dict (optional, default None)
+            Dictionary containing visualization parameters (spacing, etc)
+
+        highlight_reciprocal : Boolean (optional, default False)
+            Indicates whether edges part of a reciprocal connection are highlighted in the plot by a dashed line.
+
+
+    Returns
+    -------
+        plotly data object
+
+    """
+
+    if params is None:
+        params = dict()
+    if 'gapwidth' not in params:
+        params['gapwidth']=3            # Sets gap between groups, in units of number of nodes
+    if 'height' not in params:
+        params['height']=100            # Sets overall height
+    if 'columnwidth' not in params:
+        params['columnwidth']=10        # Width of the pre-to-post column units of number of nodes
+    if 'nodesize' not in params:
+        params['nodesize'] = 10         # Sets node size
+    if 'linescaling' not in params:
+        params['linescaling'] = 1       # Sets scaling relationship between adjacency matrix and line width
+    if 'linealpha' not in params:
+        params['linealpha'] = 0.4       # Sets opacity of lines
+    if 'xgap' not in params:
+        params['xgap'] = 3              # Sets distance between adjacent columns
+
+    nclass = len(plot_groups)
+    ngaps = nclass-1
+    nnodes = len(A) + ngaps * params['gapwidth']
+    deltay = params['height'] / nnodes
+
+    # Compute node locations
+    xvals = []
+    gap_num = 0
+    xvals.append(0)
+    last_xval = 0
+    while gap_num < len(plot_groups)-1:
+        xvals.append( last_xval + params['columnwidth'] * deltay )
+        xvals.append( last_xval + params['columnwidth'] * deltay + params['xgap'] )
+        last_xval = xvals[-1]
+        gap_num += 1
+    xvals.append(last_xval + params['columnwidth'] * deltay  )
+
+    xvals = np.array(xvals)
+    yvals = np.arange(params['height'], 0, -1*deltay)
+
+    yindex = {}
+    index_num=0
+    for group in plot_groups:
+        for nid in plot_groups[group]:
+            yindex[ nid ] = index_num
+            index_num += 1
+        index_num += params['gapwidth']-1
+
+    # Make Scatter object for all nodes
+    all_nodes = []
+    for group in plot_groups:
+        ydat = yvals[ [yindex[nid] for nid in plot_groups[group]] ] 
+        for xpos in xvals:
+            all_nodes.append(
+                go.Scatter( x=xpos*np.ones(np.shape(plot_groups[group])),
+                            y=ydat,
+                            mode='markers',
+                            showlegend=False,
+                            marker=dict(
+                                size = params['nodesize'],
+                                color = 'rgba{}'.format( cl.to_rgba(colors[group]) ),
+                                line = dict(
+                                    width = 2,
+                                    color = 'rgb(1,1,1)'
+                                    )
+                                )
+                            )
+                )
+
+    # Make line object for all edges.
+    all_lines = []
+    for ii, group in enumerate(plot_groups):
+        for nid in plot_groups[group]:
+            for targ_id in A[nid]:
+                all_lines.append( go.Scatter( x=[xvals[2*ii], xvals[2*ii+1]],
+                                        y=[yvals[yindex[nid]], yvals[ yindex[targ_id]] ],
+                                        mode='lines',
+                                        showlegend=False,
+                                        line=dict(
+                                            width= A[nid][targ_id]['weight'] * params['linescaling'],
+                                            color= 'rgba{}'.format( cl.to_rgba(colors[group],params['linealpha']))
+                                            )
+                                        )
+                                )
+
+    layout = go.Layout( 
+                        height = 1.1*max(yvals),
+                        width = 1.1*max(xvals),
+                        xaxis = dict( visible=False ),
+                        yaxis = dict( visible=False )
+                        )
+
+    return all_lines+all_nodes, layout
+
