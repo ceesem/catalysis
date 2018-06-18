@@ -218,9 +218,13 @@ def match_report_plot_data( nrn_q, nrns_t, matches, color_q=(0.2,0.2,0.2), color
                                   width=2 )
     return nrn_q_data + nrn_t_data
 
-def connectivity_line_plot( A, plot_groups, colors, params=None, highlight_reciprocal=False  ):
+def connectivity_line_plot( A, plot_groups, colors, params=None ):
     """
-    Produce a mesh-style line plot of neurons.
+    Produce a mesh-style line plot of neurons for Plotly.
+    Usage: 
+        data, layout = connectivity_line_plot( A, plot_groups, colors )
+        py.iplot( go.Figure(data=data, layout=layout) )
+
     Parameters
     ----------
         A : NetworkX graph
@@ -236,12 +240,16 @@ def connectivity_line_plot( A, plot_groups, colors, params=None, highlight_recip
             Dictionary containing visualization parameters (spacing, etc)
 
         highlight_reciprocal : Boolean (optional, default False)
-            Indicates whether edges part of a reciprocal connection are highlighted in the plot by a dashed line.
+            Indicates whether edges part of a reciprocal connection are highlighted in the plot by a dashed line. (Not yet implemented)
 
 
     Returns
     -------
-        plotly data object
+        Data Object for Plotly
+            Contains all nodes and lines
+
+        Layout Object for Plotly
+            Spaces the layout for the intended visual parameters.
 
     """
 
