@@ -4,4 +4,5 @@ scipy
 networkx
 json
 pandas
+plotly
 gzip

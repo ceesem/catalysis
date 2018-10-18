@@ -221,9 +221,13 @@ def match_report_plot_data( nrn_q, nrns_t, matches, color_q=(0.2,0.2,0.2), color
 def connectivity_line_plot( A, plot_groups, colors, params=None ):
     """
     Produce a mesh-style line plot of neurons for Plotly.
-    Usage: 
-        data, layout = connectivity_line_plot( A, plot_groups, colors )
-        py.iplot( go.Figure(data=data, layout=layout) )
+    Usage:
+        To view interactively:
+            data, layout = connectivity_line_plot( A, plot_groups, colors )
+            py.iplot( go.Figure(data=data, layout=layout) )
+        To save to an svg file:
+            data, layout = connectivity_line_plot( A, plot_groups, colors )
+            py.plot( go.Figure(data=data, layout=layout), image='svg', image_filename='my_filename' ) 
 
     Parameters
     ----------
@@ -298,7 +302,7 @@ def connectivity_line_plot( A, plot_groups, colors, params=None ):
             index_num += 1
         index_num += params['gapwidth']-1
 
-    # Make Scatter object for all nodes
+    # Make Scatter marker object for all nodes
     all_nodes = []
     for group in plot_groups:
         ydat = yvals[ [yindex[nid] for nid in plot_groups[group]] ] 
@@ -319,7 +323,7 @@ def connectivity_line_plot( A, plot_groups, colors, params=None ):
                             )
                 )
 
-    # Make line object for all edges.
+    # Make Scatter line object for all edges.
     all_lines = []
     for ii, group in enumerate(plot_groups):
         for nid in plot_groups[group]:
@@ -335,6 +339,7 @@ def connectivity_line_plot( A, plot_groups, colors, params=None ):
                                         )
                                 )
 
+    # Set a lightweight Layout with appropriate values for the parameters
     layout = go.Layout( 
                         height = 1.1*max(yvals),
                         width = 1.1*max(xvals),
