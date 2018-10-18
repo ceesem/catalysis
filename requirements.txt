@@ -1,8 +1,9 @@
+requests
 catpy
 numpy
 scipy
 networkx
-json
 pandas
+tqdm
+matplotlib
 plotly
-gzip
